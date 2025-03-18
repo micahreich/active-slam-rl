@@ -33,7 +33,8 @@ RUN pip install --no-cache-dir \
     matplotlib \
     tqdm \
     jupyterlab \
-    normflows
+    normflows \
+    gymnasium
 
 # Create a non-root user named "dev" with the provided UID/GID.
 RUN groupadd -g ${GROUP_ID} dev && \
