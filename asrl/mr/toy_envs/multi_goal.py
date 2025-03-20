@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import gymnasium as gym
 from gymnasium import spaces
 
+
 # copy from https://github.com/rail-berkeley/softlearning/blob/master/softlearning/environments/gym/multi_goal.py
 class MultiGoal(gym.Env):
     """
@@ -13,6 +14,7 @@ class MultiGoal(gym.Env):
     State: position.
     Action: velocity.
     """
+
     def __init__(self,
                  goal_reward=10,
                  actuation_cost_coeff=30.0,
@@ -22,14 +24,8 @@ class MultiGoal(gym.Env):
         self.dynamics = PointDynamics(dim=2, sigma=0)
         self.init_mu = np.zeros(2, dtype=np.float32)
         self.init_sigma = init_sigma
-        self.goal_positions = np.array(
-            (
-                (5, 0),
-                (-5, 0),
-                (0, 5),
-                (0, -5)
-            ),
-            dtype=np.float32)
+        self.goal_positions = np.array(((5, 0), (-5, 0), (0, 5), (0, -5)),
+                                       dtype=np.float32)
         self.goal_threshold = 1.0
         self.goal_reward = goal_reward
         self.action_cost_coeff = actuation_cost_coeff
@@ -41,9 +37,12 @@ class MultiGoal(gym.Env):
             low=np.array((self.xlim[0], self.ylim[0])),
             high=np.array((self.xlim[1], self.ylim[1])),
             dtype=np.float32,
-            shape=(2,),
-            )
-        self.action_space = spaces.Box(-self.vel_bound, self.vel_bound, shape=(2,), dtype=np.float32)
+            shape=(2, ),
+        )
+        self.action_space = spaces.Box(-self.vel_bound,
+                                       self.vel_bound,
+                                       shape=(2, ),
+                                       dtype=np.float32)
         self.reset()
         self.observation = None
 
@@ -55,12 +54,10 @@ class MultiGoal(gym.Env):
 
     def reset(self, seed=None, options=None):
         unclipped_observation = (
-            self.init_mu
-            + self.init_sigma
-            * np.random.normal(size=self.dynamics.s_dim))
+            self.init_mu +
+            self.init_sigma * np.random.normal(size=self.dynamics.s_dim))
         self.observation = np.clip(
-            unclipped_observation,
-            self.observation_space.low,
+            unclipped_observation, self.observation_space.low,
             self.observation_space.high).astype(np.float32)
         self.timestep = 0
         return self.observation, {'pos': self.observation}
@@ -71,16 +68,12 @@ class MultiGoal(gym.Env):
     def step(self, action):
         action = action.ravel()
 
-        action = np.clip(
-            action,
-            self.action_space.low,
-            self.action_space.high).ravel()
+        action = np.clip(action, self.action_space.low,
+                         self.action_space.high).ravel()
 
         observation = self.dynamics.forward(self.observation, action)
-        observation = np.clip(
-            observation,
-            self.observation_space.low,
-            self.observation_space.high).astype(np.float32)
+        observation = np.clip(observation, self.observation_space.low,
+                              self.observation_space.high).astype(np.float32)
 
         reward = self.compute_reward(observation, action)
         dist_to_goal = np.amin([
@@ -129,7 +122,7 @@ class MultiGoal(gym.Env):
 
         # plt.draw()
         # plt.pause(0.01)
-        plt.savefig(file_name+'.png')
+        plt.savefig(file_name + '.png')
 
     def render(self, mode='human', *args, **kwargs):
         """Render for rendering the current state of the environment."""
@@ -138,13 +131,13 @@ class MultiGoal(gym.Env):
     def compute_reward(self, observation, action):
         # penalize the L2 norm of acceleration
         # noinspection PyTypeChecker
-        action_cost = np.sum(action ** 2) * self.action_cost_coeff
+        action_cost = np.sum(action**2) * self.action_cost_coeff
 
         # penalize squared dist to goal
         cur_position = observation
         # noinspection PyTypeChecker
         goal_cost = self.distance_cost_coeff * np.amin([
-            np.sum((cur_position - goal_position) ** 2)
+            np.sum((cur_position - goal_position)**2)
             for goal_position in self.goal_positions
         ])
 
@@ -157,22 +150,19 @@ class MultiGoal(gym.Env):
         delta = 0.01
         x_min, x_max = tuple(1.1 * np.array(self.xlim))
         y_min, y_max = tuple(1.1 * np.array(self.ylim))
-        X, Y = np.meshgrid(
-            np.arange(x_min, x_max, delta),
-            np.arange(y_min, y_max, delta)
-        )
-        goal_costs = np.amin([
-            (X - goal_x) ** 2 + (Y - goal_y) ** 2
-            for goal_x, goal_y in self.goal_positions
-        ], axis=0)
+        X, Y = np.meshgrid(np.arange(x_min, x_max, delta),
+                           np.arange(y_min, y_max, delta))
+        goal_costs = np.amin([(X - goal_x)**2 + (Y - goal_y)**2
+                              for goal_x, goal_y in self.goal_positions],
+                             axis=0)
         costs = goal_costs
 
         contours = ax.contour(X, Y, costs, 20)
         ax.clabel(contours, inline=1, fontsize=10, fmt='%.0f')
         ax.set_xlim([x_min, x_max])
         ax.set_ylim([y_min, y_max])
-        goal = ax.plot(self.goal_positions[:, 0],
-                       self.goal_positions[:, 1], 'ro')
+        goal = ax.plot(self.goal_positions[:, 0], self.goal_positions[:, 1],
+                       'ro')
         return [contours, goal]
 
 
@@ -181,6 +171,7 @@ class PointDynamics(object):
     State: position.
     Action: velocity.
     """
+
     def __init__(self, dim, sigma):
         self.dim = dim
         self.sigma = sigma

@@ -26,4 +26,24 @@ tau: 0.0005
 alpha: 2.5
 sigma_max: 1.0
 sigma_min: -2.0
-# path_load: ckpts/MultiGoal-v0/meow/base/1-seed0/best.pt
+
+# Flow parameters
+init_parameters_context_encoder: "zero"
+init_parameters_flow: "orthogonal"
+init_parameters_reward_shift: "zero"
+
+dropout_rate_flow: 0.1
+dropout_rate_reward_shift: 0.0
+
+layernorm_context_encoder: false
+layernorm_flow: true
+layernorm_reward_shift: false
+
+n_flow_layers: 2
+n_hidden_layers_context_encoder: 2
+n_hidden_layers_flow: 2
+n_hidden_layers_reward_shift: 2
+
+n_hidden_units_context_encoder: 64
+n_hidden_units_flow: 64
+n_hidden_units_reward_shift: 256

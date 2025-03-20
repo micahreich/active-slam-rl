@@ -35,6 +35,7 @@ RUN pip install --no-cache-dir \
     jupyterlab \
     normflows \
     gymnasium \
+    yapf \
     "gymnasium[mujoco]"
 
 # Create a non-root user named "dev" with the provided UID/GID.

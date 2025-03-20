@@ -2,21 +2,16 @@ import torch
 from torch import nn
 import torch.functional as F
 
+
 class MLP(nn.Module):
     """
     A multilayer perceptron with Leaky ReLU nonlinearities
     """
 
-    def __init__(
-        self,
-        layers,
-        dropout_rate=None,
-        init=False,
-        layernorm=False
-    ):
+    def __init__(self, layers, dropout_rate=None, init=False, layernorm=False):
         super().__init__()
         net = nn.ModuleList([])
-        
+
         for k in range(len(layers) - 2):
             # Linear
             net.append(nn.Linear(layers[k], layers[k + 1]))
@@ -37,7 +32,7 @@ class MLP(nn.Module):
             # Dropout
             if dropout_rate is not None:
                 net.append(nn.Dropout(p=dropout_rate))
-        
+
         net.append(nn.Linear(layers[-2], layers[-1]))
 
         # Set Initial values
@@ -53,14 +48,16 @@ class MLP(nn.Module):
 
     def forward(self, x):
         return self.net(x)
-    
+
+
 class Swish(nn.Module):
-  def __init__(self, dim=-1):
-    """
+
+    def __init__(self, dim=-1):
+        """
     Swish from: https://github.com/wgrathwohl/LSD/blob/master/networks.py#L299
     """
-    super().__init__()
-    self.beta = nn.Parameter(torch.ones((dim,)))
+        super().__init__()
+        self.beta = nn.Parameter(torch.ones((dim, )))
 
-  def forward(self, x):
-    return x * torch.sigmoid(self.beta[None, :] * x)
+    def forward(self, x):
+        return x * torch.sigmoid(self.beta[None, :] * x)
