@@ -7,80 +7,50 @@ from torch import nn
 from typing import Optional, Tuple, List
 # from normflows.nets import MLP
 from asrl.meow.utils import get_device, MLP
-from asrl.meow.flows import MaskedConditionalAffineFlow, TransformFlow, ConditionalRewardShifting
-from asrl.meow.distributions import ConditionalDiagGaussianQV
+from asrl.meow.flows import CondScaling, MaskedCondAffineFlow
+from asrl.meow.transforms import Preprocessing
+from asrl.meow.distributions import ConditionalDiagLinearGaussian
 import inspect
 
 
 
-def init_flow(state_dim: int,
-              action_dim: int,
-              action_range: Tuple[torch.Tensor, torch.Tensor],
-              flow_layers: int = 2,
-              context_encoder_hidden_sizes: int = 256,
-              flow_hidden_sizes: int = 256,
-              reward_shift_hidden_sizes: int = 256,
-              hidden_layers: int = 2,
-              dropout_rate_flow: float = 0.1,
-              dropout_rate_reward_shift: float = 0.1,
-              layer_norm_flow: bool = True,
-              layer_norm_reward_shift: bool = True,
-              init_parameter_context_encoder="orthogonal",
-              init_parameter_flow="orthogonal",
-              init_parameter_reward_shift="zero",
-              device="cpu"):
+def init_Flow(sigma_max, sigma_min, action_sizes, state_sizes):
+    init_parameter = "zero"
+    init_parameter_flow = "orthogonal"
+    dropout_rate_flow = 0.1
+    dropout_rate_scale = 0.0
+    layer_norm_flow = True
+    layer_norm_scale = False
+    hidden_layers = 2
+    flow_layers = 2
+    hidden_sizes = 64
+    scale_hidden_sizes = 256
     
-    action_range = (torch.as_tensor(action_range[0]), torch.as_tensor(action_range[1]))
-    assert (action_range[1] > action_range[0]).all(), "Action range must be valid, i.e. upper bound must be greater than lower bound in all dims"
-    
-    # Construct the prior distribution q0(z | s)
-    prior_context_encoder_layer_dims = [state_dim] + [context_encoder_hidden_sizes]*hidden_layers + [2 * action_dim]
-    prior_context_encoder = MLP(layers=prior_context_encoder_layer_dims,
-                                init=init_parameter_context_encoder)
-    q0 = ConditionalDiagGaussianQV(shape=(action_dim,), context_encoder=prior_context_encoder)
-    
-    # Construct the normalizing flow, x = T(u)
+    # Construct the prior distribution and the linear transformation
+    prior_list = [state_sizes] + [hidden_sizes]*hidden_layers + [action_sizes]
+    loc = None
+    log_scale = MLP(prior_list, init=init_parameter)
+    q0 = ConditionalDiagLinearGaussian(action_sizes, loc, log_scale, SIGMA_MIN=sigma_min, SIGMA_MAX=sigma_max)
+
+    # Construct normalizing flow
     flows = []
-    b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(action_dim)])
-    
-    flow_st_encoder_layer_dims = [action_dim+state_dim] + [flow_hidden_sizes]*hidden_layers + [action_dim]
-    
+    b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(action_sizes)])
     for i in range(flow_layers):
+        layers_list = [action_sizes+state_sizes] + [hidden_sizes]*hidden_layers + [action_sizes]
         s = None
-        t1 = MLP(flow_st_encoder_layer_dims,
-                 dropout_rate=dropout_rate_flow,
-                 init=init_parameter_flow,
-                 layernorm=layer_norm_flow)
-        t2 = MLP(flow_st_encoder_layer_dims,
-                 dropout_rate=dropout_rate_flow,
-                 init=init_parameter_flow,
-                 layernorm=layer_norm_flow)
-        flows += [MaskedConditionalAffineFlow(b, t1, s)]
-        flows += [MaskedConditionalAffineFlow(1 - b, t2, s)]
+        t1 = MLP(layers_list, init=init_parameter_flow, dropout_rate=dropout_rate_flow, layernorm=layer_norm_flow)
+        t2 = MLP(layers_list, init=init_parameter_flow, dropout_rate=dropout_rate_flow, layernorm=layer_norm_flow)
+        flows += [MaskedCondAffineFlow(b, t1, s)]
+        flows += [MaskedCondAffineFlow(1 - b, t2, s)]
     
-    # Construct the reward shifting functions
-    scale_layers_dim_list = [state_dim] + [reward_shift_hidden_sizes]*hidden_layers + [1]
-    learnable_reward_shift_1 = MLP(scale_layers_dim_list,
-                            dropout_rate=dropout_rate_reward_shift,
-                            init=init_parameter_reward_shift,
-                            layernorm=layer_norm_reward_shift)
-    
-    learnable_reward_shift_2 = MLP(scale_layers_dim_list,
-                            dropout_rate=dropout_rate_reward_shift,
-                            init=init_parameter_reward_shift,
-                            layernorm=layer_norm_reward_shift)    
+    # Construct the reward shifting function
+    scale_list = [state_sizes] + [scale_hidden_sizes]*hidden_layers + [1]
+    learnable_scale_1 = MLP(scale_list, init=init_parameter, dropout_rate=dropout_rate_scale, layernorm=layer_norm_scale)
+    learnable_scale_2 = MLP(scale_list, init=init_parameter, dropout_rate=dropout_rate_scale, layernorm=layer_norm_scale)
+    flows += [CondScaling(learnable_scale_1, learnable_scale_2)]
 
-    flows += [ConditionalRewardShifting(learnable_reward_shift_1, learnable_reward_shift_2)]
-
-    # Normalize the output to stay in action range: https://www.desmos.com/calculator/4boustmxgf
-    affine_tf_width = action_range[1] - action_range[0]
-    affine_loc = (1/2 * affine_tf_width + action_range[0]).to(device)
-    affine_scale = (1/2 * affine_tf_width).to(device)
-    
-    flows += [TransformFlow(transform=TanhTransform()),
-              TransformFlow(transform=AffineTransform(loc=affine_loc,
-                                                      scale=affine_scale))]
-    
+    # Construct the preprocessing layer
+    flows += [Preprocessing()]
     return flows, q0
     
     

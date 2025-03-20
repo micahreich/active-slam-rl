@@ -34,7 +34,8 @@ RUN pip install --no-cache-dir \
     tqdm \
     jupyterlab \
     normflows \
-    gymnasium
+    gymnasium \
+    "gymnasium[mujoco]"
 
 # Create a non-root user named "dev" with the provided UID/GID.
 RUN groupadd -g ${GROUP_ID} dev && \

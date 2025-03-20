@@ -43,5 +43,6 @@ def main(config: MEOWTrainingConfig):
 if __name__ == "__main__":
     main(config=MEOWTrainingConfig(
         eval_every=500,
-        save=True
+        save=True,
+        grad_clip=30.0
     ))

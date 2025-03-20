@@ -16,11 +16,11 @@ from typing import Optional
 @dataclass
 class MEOWTrainingConfig:
     replay_buffer_size: int = field(default=1000000)
-    tau: float = field(default=0.005)
-    learning_rate: float = field(default=1e-3)
+    tau: float = field(default=0.0005)
+    learning_rate: float = field(default=1e-4)
     batch_size: int = field(default=256)
     gym_seed: int = field(default=0)
-    n_train_env_steps: int = field(default=4000)
+    n_train_env_steps: int = field(default=5000)
     n_train_env_warmup_steps: int = field(default=1000)
     eval_every: int = field(default=1000)
     n_eval_envs: int = field(default=10)

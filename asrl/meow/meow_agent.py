@@ -2,7 +2,7 @@ from copy import deepcopy
 import torch
 from torch import nn
 import torch.nn.functional as F
-from asrl.meow.ebflow_policy import EBFlowPolicy, init_flow
+from asrl.meow.ebflow_policy import EBFlowPolicy, init_Flow
 from asrl.meow.buffer import ReplayBuffer
 import gymnasium as gym
 from asrl.meow.training_loop import MEOWTrainingConfig, training_loop
@@ -26,11 +26,11 @@ class MEOWAgent:
         self.gamma = gamma
         self.config = config
         
-        flows, q0 = init_flow(
-            state_dim=nx,
-            action_dim=nu,
-            action_range=action_range,
-            device=self.device
+        flows, q0 = init_Flow(
+            1.0,
+            -2.0,
+            nx,
+            nu,
         )
         
         policy = EBFlowPolicy(q0=q0, flows=flows, alpha=self.alpha)

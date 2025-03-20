@@ -1,0 +1,29 @@
+# Basic setups
+env: MultiGoal-v0
+algo: meow
+seed: 0
+description: base
+deterministic: true
+
+# Training parameters 1
+buffer_size: 1000000
+eval_every: 800
+plot_every: 800
+steps: 6000
+warmup_steps: 1000
+test_num: 10
+device: cuda
+
+# Training parameters 2
+batch_size: 256
+lr: 0.001
+grad_clip: 30
+weight_decay: 0
+
+# Network parameters
+gamma: 0.9
+tau: 0.0005
+alpha: 2.5
+sigma_max: 1.0
+sigma_min: -2.0
+# path_load: ckpts/MultiGoal-v0/meow/base/1-seed0/best.pt
