@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from asrl.mr.modules.utils import convert_to_shape_tuple
+from asrl.meow.modules.utils import convert_to_shape_tuple
 from nf.nets import MLP
 from nf.transforms import Preprocessing
 from nf.distributions import ConditionalDiagLinearGaussian, ContextEncoderDiagGaussian

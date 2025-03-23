@@ -36,6 +36,7 @@ RUN pip install --no-cache-dir \
     normflows \
     gymnasium \
     yapf \
+    tensorboard \
     "gymnasium[mujoco]"
 
 # Create a non-root user named "dev" with the provided UID/GID.
