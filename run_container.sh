@@ -22,6 +22,7 @@ xhost +local:
 
 docker run --gpus all -it --rm \
     -v ${HOST_DIR}:/home/dev/workspace \
+    --name ${IMAGE_NAME} \
     --network host \
     --ipc=host \
     --privileged \
