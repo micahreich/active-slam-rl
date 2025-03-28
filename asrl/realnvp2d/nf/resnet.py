@@ -89,7 +89,7 @@ class ResidualTemporalBlock1D(nn.Module):
         inp_channels: int,
         out_channels: int,
         kernel_size: Union[int, Tuple[int, int]] = 5,
-        cond_dim: Optional[int] = None,
+        context_dim: Optional[int] = None,
         init_zeros=False,
     ):
         super().__init__()
@@ -112,10 +112,15 @@ class ResidualTemporalBlock1D(nn.Module):
             nn.Conv1d(inp_channels, out_channels, 1) if inp_channels != out_channels else nn.Identity()
         )
         
-        if cond_dim is not None:
-            self.film = nn.Linear(cond_dim, out_channels * 2)  # For FiLM layer
+        if context_dim is not None:
+            self.film = nn.Sequential(
+                nn.Linear(context_dim, out_channels * 4),
+                nn.Linear(out_channels * 4, out_channels * 2)  # Reduce to out_channels * 2 for gamma and beta
+            )
+            nn.init.zeros_(self.film[-1].weight)
+            nn.init.zeros_(self.film[-1].bias)
 
-    def forward(self, x: torch.Tensor, cond: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, context: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Args:
             inputs : [ batch_size x inp_channels x horizon ]
@@ -131,8 +136,8 @@ class ResidualTemporalBlock1D(nn.Module):
         out = self.conv2(out)
         # out = self.bn2(out)
         
-        if cond is not None:
-            film_params = self.film(cond)[:, :, None] # (B, out_channels * 2, 1, 1)
+        if context is not None:
+            film_params = self.film(context)[:, :, None] # (B, out_channels * 2, 1)
             gamma, beta = film_params.chunk(2, dim=1)  # Split into gamma and beta
             out = out * (1.0 + gamma) + beta
         

@@ -10,17 +10,6 @@ from typing import Tuple, List
 
 
 def init_flow(args) -> Tuple[List[Flow], ConditionalDiagLinearGaussian]:
-    # init_parameter = "zero"
-    # init_parameter_flow = "orthogonal"
-    # dropout_rate_flow = 0.1
-    # dropout_rate_scale = 0.0
-    # layer_norm_flow = True
-    # layer_norm_scale = False
-    # hidden_layers = 2
-    # flow_layers = 2
-    # hidden_size = 64
-    # scale_hidden_size = 256
-
     # Construct the prior distribution and the linear transformation
     prior_list = [args.state_size] + \
                  [args.n_hidden_units_context_encoder] * args.n_hidden_layers_context_encoder + \

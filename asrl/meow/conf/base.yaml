@@ -35,9 +35,9 @@ init_parameters_reward_shift: "zero"
 dropout_rate_flow: 0.1
 dropout_rate_reward_shift: 0.0
 
-layernorm_context_encoder: false
+layernorm_context_encoder: true
 layernorm_flow: true
-layernorm_reward_shift: false
+layernorm_reward_shift: true
 
 n_flow_layers: 2
 n_hidden_layers_context_encoder: 2

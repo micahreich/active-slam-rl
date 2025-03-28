@@ -28,7 +28,7 @@ class SqueezeTemporal(nf.flows.Flow):
     def __init__(self):
         super().__init__()
     
-    def forward(self, z):
+    def forward(self, z, context=None):
         """
         Forward squeeze.
         
@@ -52,7 +52,7 @@ class SqueezeTemporal(nf.flows.Flow):
         z = z.view(B, C // 2, T * 2)
         return z, log_det
 
-    def inverse(self, z):
+    def inverse(self, z, context=None):
         """
         Inverse squeeze (unsqueeze).
         
