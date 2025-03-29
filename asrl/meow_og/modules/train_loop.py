@@ -36,17 +36,17 @@ def train_loop(agent, args, buffer, train_envs, test_envs, logger):
         next_obs, reward, terminated, truncated, info = train_envs.step(act)
 
         # Be careful of final observation in vectorized env, see: https://gymnasium.farama.org/api/vector/#gymnasium.vector.VectorEnv.step
-        real_next_obs = next_obs.copy()
-        for idx, trunc in enumerate(truncated):
-            if trunc:
-                real_next_obs[idx] = info["final_observation"][idx]
+        # real_next_obs = next_obs.copy()
+        # for idx, trunc in enumerate(truncated):
+        #     if trunc:
+        #         real_next_obs[idx] = info["final_observation"][idx]
 
         # Note that done now change to "termination. see: https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/
         buffer.store(
             s=obs,
             a=act,
             r=reward,
-            s_=real_next_obs,
+            s_=next_obs,
             d=terminated*1. 
         )
         episode_return += reward

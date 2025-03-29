@@ -1,6 +1,7 @@
 # Use the official PyTorch container with CUDA support as the base image.
 # Adjust the tag as needed; here we use PyTorch 2.0 with CUDA 11.7 and cuDNN 8.
-FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+# FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
 
 # Build arguments for user and group IDs; defaults to 1000.
 ARG USER_ID=1000
@@ -35,9 +36,11 @@ RUN pip install --no-cache-dir \
     jupyterlab \
     normflows \
     gymnasium \
+    stable-baselines3 \
     yapf \
     tensorboard \
-    "gymnasium[mujoco]"
+    "gymnasium[mujoco]" \
+    "gymnasium[classic-control]"
 
 # Create a non-root user named "dev" with the provided UID/GID.
 RUN groupadd -g ${GROUP_ID} dev && \

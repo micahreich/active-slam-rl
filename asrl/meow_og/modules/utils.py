@@ -72,7 +72,7 @@ def plot_traj_multigoal(critic, file_name='_.png', runs=8, deterministic=False, 
 def plot_value(critic, file_name='_.png'):
     critic.eval()
     grid_size = 100
-    xx, yy = torch.meshgrid(torch.linspace(-8, 8, grid_size), torch.linspace(-8, 8, grid_size))
+    xx, yy = torch.meshgrid(torch.linspace(-8, 8, grid_size), torch.linspace(-8, 8, grid_size), indexing='ij')
     zz = torch.cat([xx.unsqueeze(2), yy.unsqueeze(2)], 2).view(-1, 2).to('cuda')
 
     neg_energy = critic.get_v(obs=torch.cat((zz, zz), dim=0))

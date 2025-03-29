@@ -20,13 +20,13 @@ class MLP(nn.Module):
             # Linear
             net.append(nn.Linear(layers[k], layers[k + 1]))
 
-            # Set Initial values
-            if init == "zero":
-                nn.init.zeros_(net[-1].weight)
-            elif init == "orthogonal":
-                nn.init.orthogonal_(net[-1].weight)
-            else:
-                NotImplementedError("This output function is not implemented.")
+            # # Set Initial values
+            # if init == "zero":
+            #     nn.init.zeros_(net[-1].weight)
+            # elif init == "orthogonal":
+            #     nn.init.orthogonal_(net[-1].weight)
+            # else:
+            #     NotImplementedError("This output function is not implemented.")
 
             if layernorm:
                 net.append(nn.LayerNorm(layers[k + 1]))

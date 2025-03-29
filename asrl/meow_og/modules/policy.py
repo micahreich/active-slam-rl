@@ -7,32 +7,36 @@ from nf.flows import MaskedCondAffineFlow, CondScaling
 
 def init_Flow(sigma_max, sigma_min, action_sizes, state_sizes):
     init_parameter = "zero"
-    init_parameter_flow = "orthogonal"
-    dropout_rate_flow = 0.1
+    init_parameter_flow = "zero"
+    dropout_rate_flow = 0.0
     dropout_rate_scale = 0.0
     layer_norm_flow = True
     layer_norm_scale = False
     hidden_layers = 2
-    flow_layers = 4
+    flow_layers = 2
     hidden_sizes = 64
     scale_hidden_sizes = 256
     
     # Construct the prior distribution and the linear transformation
     prior_list = [state_sizes] + [hidden_sizes]*hidden_layers + [action_sizes]
-    loc = None
+    loc = None # MLP(prior_list, init=init_parameter)
     log_scale = MLP(prior_list, init=init_parameter)
     q0 = ConditionalDiagLinearGaussian(action_sizes, loc, log_scale, SIGMA_MIN=sigma_min, SIGMA_MAX=sigma_max)
 
     # Construct normalizing flow
     flows = []
     b = torch.Tensor([1 if i % 2 == 0 else 0 for i in range(action_sizes)])
+    
     for i in range(flow_layers):
         layers_list = [action_sizes+state_sizes] + [hidden_sizes]*hidden_layers + [action_sizes]
-        s = None
+        s1 = MLP(layers_list, init=init_parameter_flow, dropout_rate=dropout_rate_flow, layernorm=layer_norm_flow)
+        s2 = MLP(layers_list, init=init_parameter_flow, dropout_rate=dropout_rate_flow, layernorm=layer_norm_flow)
+        
         t1 = MLP(layers_list, init=init_parameter_flow, dropout_rate=dropout_rate_flow, layernorm=layer_norm_flow)
         t2 = MLP(layers_list, init=init_parameter_flow, dropout_rate=dropout_rate_flow, layernorm=layer_norm_flow)
-        flows += [MaskedCondAffineFlow(b, t1, s)]
-        flows += [MaskedCondAffineFlow(1 - b, t2, s)]
+        
+        flows += [MaskedCondAffineFlow(b, t1, s1)]
+        flows += [MaskedCondAffineFlow(1 - b, t2, s2)]
     
     # Construct the reward shifting function
     scale_list = [state_sizes] + [scale_hidden_sizes]*hidden_layers + [1]
@@ -52,6 +56,10 @@ class FlowPolicy(nn.Module):
         self.action_shape = action_sizes
         flows, q0 = init_Flow(sigma_max, sigma_min, action_sizes, state_sizes)
         self.flows = nn.ModuleList(flows).to(self.device)
+        
+        n_params = sum(p.numel() for p in self.flows.parameters() if p.requires_grad)
+        print(f"!!! Constructed flow with {n_params} params")
+        
         self.prior = q0.to(self.device)
 
     def forward(self, obs, act):
