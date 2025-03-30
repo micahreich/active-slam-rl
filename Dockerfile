@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     htop \
     x11-apps \
     net-tools \
+    libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip to the latest version.
@@ -39,6 +40,7 @@ RUN pip install --no-cache-dir \
     stable-baselines3 \
     yapf \
     tensorboard \
+    open3d \
     "gymnasium[mujoco]" \
     "gymnasium[classic-control]"
 
