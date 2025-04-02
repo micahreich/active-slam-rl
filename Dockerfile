@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     x11-apps \
     net-tools \
     libgl1-mesa-glx \
+    libeigen3-dev \
+    libsuitesparse-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip to the latest version.
