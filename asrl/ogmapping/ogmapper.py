@@ -1,5 +1,6 @@
 import numpy as np
 from asrl.ogmapping.bresenham_nd import bresenhamline
+from numba import njit
 
 
 def SO2(theta: float) -> np.ndarray:
@@ -50,7 +51,7 @@ class OccupancyGridIndexer:
         if squeeze_back:
             return np.squeeze(xy_r)
         
-        return xy_r
+        return xy_r.astype(np.int32)
     
     def xy_m_to_ij(self, xy: np.ndarray) -> np.ndarray:
         # Convert (x, y) coordinates in meters to row-column (i, j) indices into the map
@@ -65,7 +66,7 @@ class OccupancyGridIndexer:
         if squeeze_back:
             return np.squeeze(ij)
         
-        return ij
+        return ij.astype(np.int32)
 
 class OccupancyGridMapper:
     def __init__(self, resolution: float, width_m: int, height_m: int,
@@ -100,7 +101,45 @@ class OccupancyGridMapper:
         return 1.0 / (1.0 + np.exp(-self.grid))
     
     def process_scan_2(self, pose: np.ndarray, scan_points: np.ndarray) -> None:
-        pass
+        """
+        Process a single scan and update the occupancy grid.
+        
+        Args:
+            pose (np.ndarray): The robot's pose (x, y, theta).
+            scan_points (np.ndarray): The (x, y) points from the laser scan.
+        """
+        W_R_B = SO2(pose[2])
+        scan_points_W = scan_points @ W_R_B.T #+ pose[:2]
+                
+        scan_points_xy_r = self.indexer.xy_m_to_xy_r(scan_points_W)
+        origin = np.zeros_like(scan_points_xy_r)
+        
+        rays, max_iter = bresenhamline(origin, scan_points_xy_r, max_iter=-1)
+        rays = rays.reshape((-1, max_iter, 2))
+                
+        # Bresenham computes max_iter points along the line for each scan point,
+        # but some of these will go beyond the scan point
+        ray_dists = np.linalg.norm(rays, axis=-1)
+        scan_dists = np.linalg.norm(scan_points_xy_r, axis=-1)[:, np.newaxis]
+        
+        mask_pre = (ray_dists < scan_dists).flatten()
+        mask_hit = (np.isclose(ray_dists, scan_dists)).flatten()
+
+        pose_xy_r = self.indexer.xy_m_to_xy_r(pose[:2])
+        pose_xy_i, pose_xy_j = self.indexer.xy_r_to_ij(pose_xy_r)
+        
+        rays = rays.reshape((-1, 2))
+        cell_indices_free = rays[mask_pre] + pose_xy_r
+        cell_indices_hit = rays[mask_hit] + pose_xy_r
+        
+        # Then convert to (i, j) indices to index into grid
+        grid_ij_free = self.indexer.xy_r_to_ij(cell_indices_free)
+        grid_ij_hit = self.indexer.xy_r_to_ij(cell_indices_hit)
+        
+        np.add.at(self.grid, (grid_ij_free[:, 0], grid_ij_free[:, 1]), self.l_free)
+        np.add.at(self.grid, (grid_ij_hit[:, 0], grid_ij_hit[:, 1]), self.l_occ)
+      
+        self.grid[pose_xy_i, pose_xy_j] += self.l_free
     
     def process_scan(self, pose: np.ndarray, scan_points: np.ndarray) -> None:
         """
@@ -117,11 +156,10 @@ class OccupancyGridMapper:
         scan_points_xy_r = np.floor(scan_points_W / self.resolution).astype(np.int32)
         origin = np.zeros_like(scan_points_xy_r)
         
-        # scan_point_distances = np.rint(np.linalg.norm(scan_points_xy_r, axis=-1)).astype(np.int32)
-    
         bresenham_points, max_iter = bresenhamline(origin, scan_points_xy_r, max_iter=-1)
-        # bresenham_points_distances = np.rint(np.linalg.norm(bresenham_points, axis=-1)).astype(np.int32)
         
+        # Bresenham computes max_iter points along the line for each scan point,
+        # but some of these will go beyond the scan point
         bresenham_points = bresenham_points.reshape((n_scan_points, max_iter, 2))
         bresenham_points_distances = np.linalg.norm(bresenham_points, axis=-1)
         scan_points_distances = np.linalg.norm(scan_points_xy_r, axis=-1)[:, np.newaxis]
@@ -136,53 +174,19 @@ class OccupancyGridMapper:
         cell_indices_pre = bresenham_points[mask_pre] + pose_xy_r
         cell_indices_hit = bresenham_points[mask_hit] + pose_xy_r
         
-        # # print("bresenham points:")
-        # # print(bresenham_points)
-        
-        # # Each scanline has max_iter points from bresenhamline, but some of them go beyond the scanline's end
-        # scanline_intervals_indices_pre = []
-        # scanline_intervals_indices_hit = []
-        
-        # scanline_intervals = []
-        # start_idx = 0
-        
-        # for threshold in scan_point_distances:
-        #     mask = bresenham_points_distances[start_idx:start_idx + max_iter] >= threshold
-            
-        #     if np.any(mask):
-        #         rel_idx = np.argmax(mask)  # first True, i.e. ending point of this scanline
-        #         idx = start_idx + rel_idx
-                
-        #         scanline_interval = np.arange(start_idx, idx)
-        #         scanline_intervals.append(range(start_idx, idx+1))
-                
-        #         scanline_intervals_indices_pre.append(scanline_interval)
-        #         scanline_intervals_indices_hit.append(idx)
-                
-        #         start_idx += max_iter  # start next search after this index
-        
-        # scanline_intervals_indices_pre = np.concatenate(scanline_intervals_indices_pre)
-
-        # pose_xy_r = self.indexer.xy_m_to_xy_r(pose[:2])
-        # pose_xy_i, pose_xy_j = self.indexer.xy_r_to_ij(pose_xy_r)
-
-        # # Bresenham points are (x, y) pairs in the map's resolution relative to pose, so first
-        # # add the robot's pose to get the actual cell indices in the grid
-        # cell_indices_pre = bresenham_points[scanline_intervals_indices_pre] + pose_xy_r
-        # cell_indices_hit = bresenham_points[scanline_intervals_indices_hit] + pose_xy_r
-        
         # Then convert to (i, j) indices to index into grid
         cell_indices_pre_ij = self.indexer.xy_r_to_ij(cell_indices_pre)
         cell_indices_hit_ij = self.indexer.xy_r_to_ij(cell_indices_hit)
         
         np.add.at(self.grid, (cell_indices_pre_ij[:, 0], cell_indices_pre_ij[:, 1]), self.l_free)
         np.add.at(self.grid, (cell_indices_hit_ij[:, 0], cell_indices_hit_ij[:, 1]), self.l_occ)
-        
-        # Add free cell log-odds for the cell at the robot's pose
-        pose_xy_i, pose_xy_j = self.indexer.xy_r_to_ij(pose_xy_r)
+      
         self.grid[pose_xy_i, pose_xy_j] += self.l_free
 
 if __name__ == "__main__":
+    import cProfile
+    import pstats
+    
     og_mapper = OccupancyGridMapper(resolution=0.5, width_m=4, height_m=4)
     
     # Test the indexing
@@ -190,6 +194,27 @@ if __name__ == "__main__":
                    [1.0, 1.0],
                    [0.5, 3.5],
                    [2.4, 1.2]])
-    ij = og_mapper.xy_m_to_ij(xy)
+    ij = og_mapper.indexer.xy_m_to_ij(xy)
     print(f"xy: \n{xy}")
     print(f"ij: \n{ij}")
+    
+    # Do some profiling
+    og_mapper = OccupancyGridMapper(resolution=0.1, width_m=10, height_m=10,
+                                p_hit=0.9, p_miss=0.2)
+
+    pose = np.array([5, 5, 0])
+    angles = np.linspace(0, 2*np.pi, 360, endpoint=False)
+    radii = 1.0 + 2.0 * np.cumsum(np.ones_like(angles)) / len(angles)
+
+    cos_theta, sin_theta = np.cos(angles), np.sin(angles)
+    xs = radii * cos_theta
+    ys = radii * sin_theta
+    points = np.stack((xs, ys), axis=-1)
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    og_mapper.process_scan(pose, points)
+    profiler.disable()
+
+    stats = pstats.Stats(profiler).sort_stats("cumulative")
+    stats.print_stats(10)  # top 10 slowest

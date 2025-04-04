@@ -3,6 +3,7 @@ N-D Bresenham line algo
 https://code.activestate.com/recipes/578112-bresenhams-line-algorithm-in-n-dimensions/
 """
 import numpy as np
+
 def _bresenhamline_nslope(slope):
     """
     Normalize slope for Bresenham's line algorithm.
