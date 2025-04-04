@@ -100,7 +100,7 @@ class OccupancyGridMapper:
         """
         return 1.0 / (1.0 + np.exp(-self.grid))
     
-    def process_scan_2(self, pose: np.ndarray, scan_points: np.ndarray) -> None:
+    def process_scan(self, pose: np.ndarray, scan_points: np.ndarray) -> None:
         """
         Process a single scan and update the occupancy grid.
         
@@ -140,48 +140,7 @@ class OccupancyGridMapper:
         np.add.at(self.grid, (grid_ij_hit[:, 0], grid_ij_hit[:, 1]), self.l_occ)
       
         self.grid[pose_xy_i, pose_xy_j] += self.l_free
-    
-    def process_scan(self, pose: np.ndarray, scan_points: np.ndarray) -> None:
-        """
-        Process a single scan and update the occupancy grid.
-        
-        Args:
-            pose (np.ndarray): The robot's pose (x, y, theta).
-            scan_points (np.ndarray): The (x, y) points from the laser scan.
-        """
-        n_scan_points = scan_points.shape[0]
-        W_R_B = SO2(pose[2])
-        scan_points_W = scan_points @ W_R_B.T #+ pose[:2]
-        
-        scan_points_xy_r = np.floor(scan_points_W / self.resolution).astype(np.int32)
-        origin = np.zeros_like(scan_points_xy_r)
-        
-        bresenham_points, max_iter = bresenhamline(origin, scan_points_xy_r, max_iter=-1)
-        
-        # Bresenham computes max_iter points along the line for each scan point,
-        # but some of these will go beyond the scan point
-        bresenham_points = bresenham_points.reshape((n_scan_points, max_iter, 2))
-        bresenham_points_distances = np.linalg.norm(bresenham_points, axis=-1)
-        scan_points_distances = np.linalg.norm(scan_points_xy_r, axis=-1)[:, np.newaxis]
-        
-        mask_pre = (bresenham_points_distances < scan_points_distances).flatten()
-        mask_hit = (np.isclose(bresenham_points_distances, scan_points_distances)).flatten()
 
-        pose_xy_r = self.indexer.xy_m_to_xy_r(pose[:2])
-        pose_xy_i, pose_xy_j = self.indexer.xy_r_to_ij(pose_xy_r)
-        
-        bresenham_points = bresenham_points.reshape((-1, 2))
-        cell_indices_pre = bresenham_points[mask_pre] + pose_xy_r
-        cell_indices_hit = bresenham_points[mask_hit] + pose_xy_r
-        
-        # Then convert to (i, j) indices to index into grid
-        cell_indices_pre_ij = self.indexer.xy_r_to_ij(cell_indices_pre)
-        cell_indices_hit_ij = self.indexer.xy_r_to_ij(cell_indices_hit)
-        
-        np.add.at(self.grid, (cell_indices_pre_ij[:, 0], cell_indices_pre_ij[:, 1]), self.l_free)
-        np.add.at(self.grid, (cell_indices_hit_ij[:, 0], cell_indices_hit_ij[:, 1]), self.l_occ)
-      
-        self.grid[pose_xy_i, pose_xy_j] += self.l_free
 
 if __name__ == "__main__":
     import cProfile
