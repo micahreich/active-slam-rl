@@ -94,6 +94,7 @@ class GraphICPSLAM2DGTSAM:
                 continue
             factor = gtsam.BetweenFactorPose2(pose_id, closure_id, gtsam.Pose2(transform), ODOMETRY_NOISE)
             self._graph.add(factor)
+            self.optimize()
             self._steps_since_loop_closure = 0
             return
 
