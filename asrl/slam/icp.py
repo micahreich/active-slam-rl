@@ -6,8 +6,27 @@ from typing import Optional
 import numpy as np
 from numpy.typing import NDArray
 from sklearn.neighbors import NearestNeighbors
+import gtsam
 
-from spatialmath import SE2
+
+def apply(pose1: NDArray[np.float64], pose2: NDArray[np.float64]) -> NDArray[np.float64]:
+    c = np.cos(pose1[2])
+    s = np.sin(pose1[2])
+    return np.array([
+        pose1[0] + c * pose2[0] - s * pose2[1],
+        pose1[1] + s * pose2[0] + c * pose2[1],
+        pose1[2] + pose2[2],
+    ])
+
+def inverse(pose: NDArray[np.float64]) -> NDArray[np.float64]:
+    theta = -pose[2]
+    c = -np.cos(theta)
+    s = -np.sin(theta)
+    return np.array([
+        c * pose[0] - s * pose[1],
+        s * pose[0] + c * pose[1],
+        theta,
+    ])
 
 
 def best_fit_transform(A: NDArray[np.floating], B: NDArray[np.floating]) -> NDArray[np.floating]:
@@ -42,12 +61,7 @@ def best_fit_transform(A: NDArray[np.floating], B: NDArray[np.floating]) -> NDAr
     # translation
     t = centroid_B.T - np.dot(R, centroid_A.T)
 
-    # homogeneous transformation
-    T = np.identity(m + 1)
-    T[:m, :m] = R
-    T[:m, m] = t
-
-    return T
+    return np.r_[t, np.arctan2(R[1, 0], R[0, 0])]
 
 
 def nearest_neighbor(src: NDArray[np.floating], dst: NDArray[np.floating]) -> tuple[
@@ -73,11 +87,11 @@ def nearest_neighbor(src: NDArray[np.floating], dst: NDArray[np.floating]) -> tu
 def icp(
         A: NDArray[np.floating],
         B: NDArray[np.floating],
-        init_pose: Optional[NDArray[np.floating]] = None,
+        pose: Optional[NDArray[np.floating]] = None,
         max_iter: int = 20,
         max_dist: float = np.inf,
         tolerance: float = 0.001,
-) -> tuple[SE2, NDArray[np.floating], int]:
+) -> tuple[NDArray[np.floating], NDArray[np.floating], int]:
     '''
     The Iterative Closest Point method: finds best-fit transform that maps points A on to points B
     Input:
@@ -105,15 +119,13 @@ def icp(
     dst[:, :m] = B
 
     # apply the initial pose estimation
-    if init_pose is not None:
-        T = SE2(init_pose).A
-    else:
-        T = SE2().A
+    if pose is None:
+        pose = np.zeros(3)
 
     prev_error = np.inf
 
     for i in range(max_iter):
-        src_current = src @ T.T
+        src_current = src @ gtsam.Pose2(pose).matrix().T
 
         # find the nearest neighbors between the current source and destination points
         distances, indices = nearest_neighbor(src_current[:, :m], dst[:, :m])
@@ -125,9 +137,9 @@ def icp(
 
         # compute the transformation between
         # the current source and nearest destination points
-        T_new = best_fit_transform(src_filtered, dst_filtered)
+        shift = best_fit_transform(src_filtered, dst_filtered)
 
-        T = T_new @ T
+        pose = apply(pose, shift)
 
         # check error
         mean_error = np.mean(distances)
@@ -135,10 +147,4 @@ def icp(
             break
         prev_error = mean_error
 
-    # try:
-    T = SE2(T, check=False)
-    # except:
-    #     print(T)
-    #     raise RuntimeError("failed to converge")
-
-    return T, distances, i + 1
+    return pose, distances, i + 1
