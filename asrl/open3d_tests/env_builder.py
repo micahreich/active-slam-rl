@@ -2,6 +2,7 @@ import numpy as np
 import open3d as o3d
 from scipy.ndimage import binary_dilation, label, find_objects
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import heapq
 from spatialmath.base import angle_wrap
 from spatialmath import SO3
@@ -139,13 +140,27 @@ class ArrayMap:
                 if self.walls[i, j]:
                     wall_x, wall_y = j, h - i - 1
                     
-                    cube = o3d.geometry.TriangleMesh.create_box(1, 1, 1)
+                    cube = o3d.geometry.TriangleMesh.create_box(1, 1, 3)
                     cube.compute_vertex_normals()
                     cube.translate([wall_x, wall_y, 0])
                     cube.paint_uniform_color([1, 0, 0])
                     
                     walls.append(cube)
-        return walls
+        
+        floor = []
+        for i in range(h):
+            for j in range(w):
+                if self.free_space[i, j]:
+                    floor_x, floor_y = j, h - i - 1
+                    cube_height = 0.1
+                    cube = o3d.geometry.TriangleMesh.create_box(1, 1, cube_height)
+                    cube.compute_vertex_normals()
+                    cube.translate([floor_x, floor_y, -cube_height])
+                    cube.paint_uniform_color([0, 1, 0])
+                    
+                    floor.append(cube)
+        
+        return walls + floor
     
     def plan_path_astar(self, start: np.ndarray, goal: np.ndarray, resolution=10):
         free_space = zoom(self.free_space, resolution, order=0)
@@ -244,7 +259,84 @@ def collect_body_lidar_scans(poses, scene, r_max=np.inf):
 
     return scan_points
 
+
+def generate_sphere_directions(h_res_deg=1.0, v_res_deg=2.0,
+                               v_fov_deg_tot=30):
+    # Horizontal: azimuth angles (yaw), full circle
+    azimuths = np.arange(-180, 180, h_res_deg, dtype=np.float32)
+    azimuths = np.deg2rad(azimuths)
+
+    # Vertical: elevation angles (pitch), from -90 (down) to +90 (up)
+    elevations = np.arange(-v_fov_deg_tot/2, v_fov_deg_tot/2 + v_res_deg, v_res_deg, dtype=np.float32)
+    elevations = np.deg2rad(elevations)
+
+    # Meshgrid for all (azimuth, elevation) pairs
+    azim_grid, elev_grid = np.meshgrid(azimuths, elevations)
+
+    # Spherical to Cartesian unit vectors
+    x = np.cos(elev_grid) * np.cos(azim_grid)
+    y = np.cos(elev_grid) * np.sin(azim_grid)
+    z = np.sin(elev_grid)
+
+    directions = np.stack([x, y, z], axis=-1).reshape(-1, 3)  # shape: (N, 3)
+
+    return directions.astype(np.float32)
+
+
+def add_lidar_noise(points, range_std=0.03, angular_jitter_deg=0.1, dropout_prob=0.01):
+    """
+    Add realistic noise to ground-truth LiDAR points.
+    
+    Parameters:
+        points (N, 3) array of (x, y, z) lidar points
+        range_std: standard deviation of range noise (in meters)
+        angular_jitter_deg: std deviation of angular jitter (degrees)
+        dropout_prob: probability that a point is dropped
+        
+    Returns:
+        Noisy (N, 3) point array with NaNs for dropped points (optional)
+    """
+    if points.shape[1] != 3:
+        raise ValueError("Points must be (N, 3) array")
+
+    # Convert to spherical (r, azimuth, elevation)
+    x, y, z = points[:, 0], points[:, 1], points[:, 2]
+    r = np.linalg.norm(points, axis=1)
+    azimuth = np.arctan2(y, x)
+    elevation = np.arcsin(z / r)
+
+    # Add Gaussian noise to range
+    r_noisy = r + np.random.normal(0, range_std, size=r.shape)
+
+    # Add angular jitter
+    azimuth += np.deg2rad(np.random.normal(0, angular_jitter_deg, size=r.shape))
+    elevation += np.deg2rad(np.random.normal(0, angular_jitter_deg, size=r.shape))
+
+    # Reconstruct noisy points
+    x_noisy = r_noisy * np.cos(elevation) * np.cos(azimuth)
+    y_noisy = r_noisy * np.cos(elevation) * np.sin(azimuth)
+    z_noisy = r_noisy * np.sin(elevation)
+    noisy_points = np.stack([x_noisy, y_noisy, z_noisy], axis=1)
+
+    # Randomly drop some points
+    mask = np.random.rand(len(points)) >= dropout_prob
+    # noisy_points[mask] = np.nan  # or you could remove them entirely
+
+    return noisy_points[mask]
+
+
 if __name__ == "__main__":
+    # vectors = generate_sphere_directions(10, 10, v_fov_deg_tot=90)
+    # fig = plt.figure(figsize=(8, 6))
+    # ax = fig.add_subplot(111, projection='3d')
+    
+    # ax.plot(vectors[:, 0], vectors[:, 1], vectors[:, 2], 'o')
+    # ax.set_xlabel('x')
+    # ax.set_ylabel('y')
+    # ax.set_zlabel('z')
+    # ax.set_aspect('equal')
+    # plt.show()
+    
     og = np.array([
         [0, 0, 0, 0, 0, 0, 0, 0],
         [0, 1, 1, 1, 0, 1, 1, 1],
@@ -257,29 +349,64 @@ if __name__ == "__main__":
     
     m = ArrayMap(og, scale=1)
     
-    start = m.coord_to_xy(np.array([1, 1]), m.free_space.shape)
-    goal = m.coord_to_xy(np.array([6, 2]), m.free_space.shape)
+    # start = m.coord_to_xy(np.array([1, 1]), m.free_space.shape)
+    # goal = m.coord_to_xy(np.array([6, 2]), m.free_space.shape)
     
-    print(f"Start xy: {start}", start.shape)
-    print(f"Goal xy: {goal}", goal.shape)
+    # print(f"Start xy: {start}", start.shape)
+    # print(f"Goal xy: {goal}", goal.shape)
     
-    path = m.plan_path_astar(start, goal)
+    # path = m.plan_path_astar(start, goal)
 
-    # walls = m.to_o3d_geometry()
+    env_cubes = m.to_o3d_geometry()
 
-    # # Create a coordinate frame to better visualize orientation
-    # coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+    # Create a coordinate frame to better visualize orientation
+    coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
     
-    # walls_ymax, walls_xmax = m.walls.shape
-    # grid_xy = create_grid_xy(x_range=(0, walls_xmax), y_range=(0, walls_ymax), step=1.0)
+    walls_ymax, walls_xmax = m.walls.shape
+    grid_xy = create_grid_xy(x_range=(0, walls_xmax), y_range=(0, walls_ymax), step=1.0)
 
-    # # Visualize the cube (and coordinate frame) in a scene
-    # o3d.visualization.draw_geometries(walls + [coordinate_frame, grid_xy])
-
-
+    # Visualize the cube (and coordinate frame) in a scene
+    o3d.visualization.draw_geometries(env_cubes + [coordinate_frame, grid_xy])
 
 
 
+    # Get 3D point cloud
+    scene = o3d.t.geometry.RaycastingScene()
+    
+    for cube in env_cubes:
+        scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(cube))
+
+    directions = generate_sphere_directions(1, 2, v_fov_deg_tot=30)
+    n_rays = directions.shape[0]
+    # raycast_origin = 1/2 * np.ones(3, dtype=np.float32)
+    raycast_origins = np.tile(np.array([2.5, 5.5, 0.5])[None, :], (n_rays, 1)).astype(np.float32)
+    
+    raycast_vectors = np.column_stack(
+        [raycast_origins, directions]
+    )
+    
+    print(directions.shape)
+    print(raycast_origins.shape)
+    print(raycast_vectors.shape)
+    
+    max_range = np.inf
+    ans = scene.cast_rays(raycast_vectors)
+    t_hit = ans['t_hit'].numpy()
+    hit = t_hit < max_range
+
+    hit_points = raycast_vectors[hit][:, :3] + raycast_vectors[hit][:, 3: ] * t_hit[hit].reshape((-1, 1))
+    hit_points = add_lidar_noise(hit_points, range_std=0.03, angular_jitter_deg=0.05, dropout_prob=0.01)
+
+    fig = plt.figure(figsize=(8, 6))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    ax.plot(hit_points[:, 0], hit_points[:, 1], hit_points[:, 2], 'o', markersize=0.5)
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
+    ax.set_aspect('equal')
+    plt.show()
+    
     # pts = m.sample_free_space(2, kind='coord', replace=False)
     # path = m.plan_path_astar(tuple(pts[0]), tuple(pts[1]))
     # path = m.coord_to_xy(path)
