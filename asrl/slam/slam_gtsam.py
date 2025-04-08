@@ -14,9 +14,9 @@ class GraphICPSLAM2DGTSAM:
     def __init__(
             self,
             initial_pose: NDArray = np.zeros(3),
-            min_pose_delta: float = 0.5,
-            max_loop_closure_distance: float = 1.0,
-            min_loop_closure_steps: int = 10,
+            min_pose_delta: float = 0.3,
+            max_loop_closure_distance: float = 2.0,
+            min_loop_closure_steps: int = 5,
     ) -> None:
         self.initial_pose = gtsam.Pose2(initial_pose)
         self.min_pose_delta = min_pose_delta
@@ -46,7 +46,7 @@ class GraphICPSLAM2DGTSAM:
 
         previous_pose_id = pose_id - 1
         previous_scan = self._scans[previous_pose_id]
-        transform, _, _ = icp(previous_scan, scan, self._last_transform, max_dist=0.5)
+        transform, _, _ = icp(previous_scan, scan, self._last_transform, max_dist=1.0)
 
         if np.linalg.norm(transform[:2]) < self.min_pose_delta:
             self._last_transform = transform
@@ -82,16 +82,15 @@ class GraphICPSLAM2DGTSAM:
                                              sort_results=True)
         if indices.shape[0] == 0:
             return
-        for closure_id in indices:
+        for closure_id in indices[:2]:
             scan = self._scans[pose_id]
             closure_pose = self._poses.atPose2(closure_id)
             closure_scan = self._scans[closure_id]
             transform = pose.between(closure_pose)
-            transform, distances, _ = icp(closure_scan, scan, np.r_[transform.translation(), transform.theta()], max_dist=1.0)
-            print(np.array)
-            print(transform)
+            transform, distances, _ = icp(closure_scan, scan, np.r_[transform.translation(), transform.theta()], max_dist=1.5)
             if np.mean(distances) > 0.05:
                 continue
+            print('added loop closure')
             factor = gtsam.BetweenFactorPose2(pose_id, closure_id, gtsam.Pose2(transform), ODOMETRY_NOISE)
             self._graph.add(factor)
             self.optimize()
