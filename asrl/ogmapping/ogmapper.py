@@ -98,7 +98,8 @@ class OccupancyGridMapper:
         Returns:
             np.ndarray: Probability values.
         """
-        return 1.0 / (1.0 + np.exp(-self.grid))
+        clamped = np.clip(self.grid, -20, 20)
+        return 1.0 / (1.0 + np.exp(-clamped))
     
     def process_scan(self, pose: np.ndarray, scan_points: np.ndarray) -> None:
         """
@@ -109,7 +110,8 @@ class OccupancyGridMapper:
             scan_points (np.ndarray): The (x, y) points from the laser scan.
         """
         W_R_B = SO2(pose[2])
-        scan_points_W = scan_points @ W_R_B.T #+ pose[:2]
+        #W_R_B = SO2(0)
+        scan_points_W = scan_points @ W_R_B.T 
                 
         scan_points_xy_r = self.indexer.xy_m_to_xy_r(scan_points_W)
         origin = np.zeros_like(scan_points_xy_r)
@@ -131,15 +133,31 @@ class OccupancyGridMapper:
         rays = rays.reshape((-1, 2))
         cell_indices_free = rays[mask_pre] + pose_xy_r
         cell_indices_hit = rays[mask_hit] + pose_xy_r
-        
+
         # Then convert to (i, j) indices to index into grid
         grid_ij_free = self.indexer.xy_r_to_ij(cell_indices_free)
         grid_ij_hit = self.indexer.xy_r_to_ij(cell_indices_hit)
+
+        H, W = self.grid.shape
+        def valid_indices(grid_ij):
+            return (
+                (grid_ij[:, 0] >= 0) & (grid_ij[:, 0] < H) &
+                (grid_ij[:, 1] >= 0) & (grid_ij[:, 1] < W)
+            )
+        # Filter free cells
+        valid_free_mask = valid_indices(grid_ij_free)
+        grid_ij_free = grid_ij_free[valid_free_mask]
+
+        # Filter hit cells
+        valid_hit_mask = valid_indices(grid_ij_hit)
+        grid_ij_hit = grid_ij_hit[valid_hit_mask]
         
         np.add.at(self.grid, (grid_ij_free[:, 0], grid_ij_free[:, 1]), self.l_free)
         np.add.at(self.grid, (grid_ij_hit[:, 0], grid_ij_hit[:, 1]), self.l_occ)
       
-        self.grid[pose_xy_i, pose_xy_j] += self.l_free
+        if 0 <= pose_xy_i < H and 0 <= pose_xy_j < W:
+            self.grid[pose_xy_i, pose_xy_j] += self.l_free
+
 
 
 if __name__ == "__main__":

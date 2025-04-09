@@ -4,7 +4,7 @@ from scipy.ndimage import binary_dilation, label, find_objects
 import matplotlib.pyplot as plt
 import heapq
 from spatialmath.base import angle_wrap
-from spatialmath import SO3
+from spatialmath import SO3, SE2
 from time import sleep
 from scipy.ndimage import zoom
 from scipy.ndimage import distance_transform_edt

@@ -76,7 +76,7 @@ def nearest_neighbor(src: NDArray[np.floating], dst: NDArray[np.floating]) -> tu
         indices: dst indices of the nearest neighbor
     '''
 
-    assert src.shape == dst.shape
+    #assert src.shape == dst.shape
 
     neigh = NearestNeighbors(n_neighbors=1)
     neigh.fit(dst)
@@ -119,14 +119,17 @@ def icp(
     dst[:, :m] = B
 
     # apply the initial pose estimation
-    if pose is None:
+    pose = np.array(pose, dtype=np.float64)
+    if pose is None or np.isnan(pose).any():
         pose = np.zeros(3)
 
     prev_error = np.inf
 
     for i in range(max_iter):
         src_current = src @ gtsam.Pose2(pose).matrix().T
-
+        pose = np.array(pose, dtype=np.float64)
+        if np.isnan(src_current).any():
+            return
         # find the nearest neighbors between the current source and destination points
         distances, indices = nearest_neighbor(src_current[:, :m], dst[:, :m])
 
