@@ -23,14 +23,14 @@ check_env(env, warn=True)
 
 # Train PPO agent
 model = PPO("MlpPolicy", env, verbose=1)
-model.learn(total_timesteps=10000)
+model.learn(total_timesteps=1000)
 
 # Save model
 model.save("ppo_slam_agent")
 
 # Test the trained policy
-obs = env.reset()
+obs, _ = env.reset()
 done = False
 while not done:
     action, _ = model.predict(obs)
-    obs, reward, done, info = env.step(action)
+    obs, reward, terminated, truncated, info = env.step(action)
