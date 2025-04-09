@@ -14,11 +14,11 @@ class GraphICPSLAM2DGTSAM:
     def __init__(
             self,
             initial_pose: NDArray = np.zeros(3),
-            min_pose_delta: float = 0.5,
-            max_loop_closure_distance: float = 2.5,
-            min_loop_closure_steps: int = 10,
+            min_pose_delta: float = 0.3,
+            max_loop_closure_distance: float = 2.0,
+            min_loop_closure_steps: int = 5,
     ) -> None:
-        self.initial_pose = gtsam.Pose2(*initial_pose)
+        self.initial_pose = gtsam.Pose2(initial_pose)
         self.min_pose_delta = min_pose_delta
         self.max_loop_closure_distance = max_loop_closure_distance
         self.min_loop_closure_steps = min_loop_closure_steps
@@ -46,22 +46,7 @@ class GraphICPSLAM2DGTSAM:
 
         previous_pose_id = pose_id - 1
         previous_scan = self._scans[previous_pose_id]
-
-        previous_scan = previous_scan[~np.isnan(previous_scan).any(axis=1)]
-        previous_scan = previous_scan[~np.isinf(previous_scan).any(axis=1)]
-
-        scan = scan[~np.isnan(scan).any(axis=1)]
-        scan = scan[~np.isinf(scan).any(axis=1)]
-
-        # Only run ICP if both scans are non-empty
-        if previous_scan.shape[0] == 0 or scan.shape[0] == 0:
-            return
-
-        icp_result = icp(previous_scan, scan, self._last_transform, max_dist=0.5)
-        if icp_result is not None:
-            transform, _, _ = icp_result
-        else:
-            return
+        transform, _, _ = icp(previous_scan, scan, self._last_transform, max_dist=1.0)
 
         if np.linalg.norm(transform[:2]) < self.min_pose_delta:
             self._last_transform = transform
@@ -84,10 +69,8 @@ class GraphICPSLAM2DGTSAM:
         if self._steps_since_loop_closure > self.min_loop_closure_steps:
             self._check_loop_closure(pose_id)
 
-
     def _update_nn(self):
         poses = self.poses()[:-self.min_loop_closure_steps, :2]
-        poses = poses[~np.isnan(poses).any(axis=1)]  # Remove rows with NaNs
         self._nn = KDTree(poses)
         self._steps_since_nn = 0
 
@@ -95,38 +78,19 @@ class GraphICPSLAM2DGTSAM:
         if self._nn is None:
             return
         pose = self._poses.atPose2(pose_id)
-        query_pt = pose.translation()
-        if np.isnan(query_pt).any():
-            return
         [indices], _ = self._nn.query_radius([pose.translation()], self.max_loop_closure_distance, return_distance=True,
                                              sort_results=True)
         if indices.shape[0] == 0:
             return
-        for closure_id in indices:
+        for closure_id in indices[:2]:
             scan = self._scans[pose_id]
             closure_pose = self._poses.atPose2(closure_id)
             closure_scan = self._scans[closure_id]
-
-            closure_scan = closure_scan[~np.isnan(closure_scan).any(axis=1)]
-            closure_scan = closure_scan[~np.isinf(closure_scan).any(axis=1)]
-            scan = scan[~np.isnan(scan).any(axis=1)]
-            scan = scan[~np.isinf(scan).any(axis=1)]
-            if closure_scan.shape[0] == 0 or scan.shape[0] == 0:
-                return
             transform = pose.between(closure_pose)
-            if np.isnan(transform.translation()).any() or np.isnan(transform.theta()):
-                return
-            
-            icp_result = icp(closure_scan, scan, np.r_[transform.translation(), transform.theta()], max_dist=1.0)
-            if icp_result is not None:
-                transform, distances, _ = icp_result
-            else:
-                return
-
-            #print(f"Checking LC {pose_id} <-> {closure_id}, mean ICP error: {np.mean(distances):.4f}")
-            if np.mean(distances) > 0.1:
+            transform, distances, _ = icp(closure_scan, scan, np.r_[transform.translation(), transform.theta()], max_dist=1.5)
+            if np.mean(distances) > 0.05:
                 continue
-            print(f"[LOOP CLOSURE] Between poses {pose_id} and {closure_id} (ICP mean error: {np.mean(distances):.4f})")
+            print('added loop closure')
             factor = gtsam.BetweenFactorPose2(pose_id, closure_id, gtsam.Pose2(transform), ODOMETRY_NOISE)
             self._graph.add(factor)
             self.optimize()

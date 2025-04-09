@@ -3,10 +3,11 @@
 
 from typing import Optional
 
+import gtsam
+import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 from sklearn.neighbors import NearestNeighbors
-import gtsam
 
 
 def apply(pose1: NDArray[np.float64], pose2: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -17,6 +18,7 @@ def apply(pose1: NDArray[np.float64], pose2: NDArray[np.float64]) -> NDArray[np.
         pose1[1] + s * pose2[0] + c * pose2[1],
         pose1[2] + pose2[2],
     ])
+
 
 def inverse(pose: NDArray[np.float64]) -> NDArray[np.float64]:
     theta = -pose[2]
@@ -36,7 +38,7 @@ def best_fit_transform(A: NDArray[np.floating], B: NDArray[np.floating]) -> NDAr
       A: Nxm numpy array of corresponding points
       B: Nxm numpy array of corresponding points
     Returns:
-      T: (m+1)x(m+1) homogeneous transformation matrix that maps A on to B
+      T: pose delta [x, y, t]
     '''
 
     # get number of dimensions
@@ -76,7 +78,7 @@ def nearest_neighbor(src: NDArray[np.floating], dst: NDArray[np.floating]) -> tu
         indices: dst indices of the nearest neighbor
     '''
 
-    #assert src.shape == dst.shape
+    assert src.shape == dst.shape
 
     neigh = NearestNeighbors(n_neighbors=1)
     neigh.fit(dst)
@@ -88,7 +90,7 @@ def icp(
         A: NDArray[np.floating],
         B: NDArray[np.floating],
         pose: Optional[NDArray[np.floating]] = None,
-        max_iter: int = 20,
+        max_iter: int = 200,
         max_dist: float = np.inf,
         tolerance: float = 0.001,
 ) -> tuple[NDArray[np.floating], NDArray[np.floating], int]:
@@ -119,17 +121,14 @@ def icp(
     dst[:, :m] = B
 
     # apply the initial pose estimation
-    pose = np.array(pose, dtype=np.float64)
-    if pose is None or np.isnan(pose).any():
+    if pose is None:
         pose = np.zeros(3)
 
     prev_error = np.inf
 
     for i in range(max_iter):
         src_current = src @ gtsam.Pose2(pose).matrix().T
-        pose = np.array(pose, dtype=np.float64)
-        if np.isnan(src_current).any():
-            return
+
         # find the nearest neighbors between the current source and destination points
         distances, indices = nearest_neighbor(src_current[:, :m], dst[:, :m])
 
@@ -138,11 +137,23 @@ def icp(
         src_filtered = src_current[matches_filtered, :m]
         dst_filtered = dst[indices[matches_filtered], :m]
 
+            # plt.gca().set_aspect('equal')
+            # plt.scatter(src_current[:, 0], src_current[:, 1], c='r', alpha=0.1)
+            # plt.scatter(dst[:, 0], dst[:, 1], c='b', alpha=0.1)
+            # plt.scatter(src_filtered[:, 0], src_filtered[:, 1], c='r')
+            # plt.scatter(dst_filtered[:, 0], dst_filtered[:, 1], c='b')
+            # plt.plot(
+            #     np.c_[src_filtered[:, 0], dst_filtered[:, 0]].T,
+            #     np.c_[src_filtered[:, 1], dst_filtered[:, 1]].T,
+            #     '-o'
+            # )
+            # plt.show()
+
         # compute the transformation between
         # the current source and nearest destination points
         shift = best_fit_transform(src_filtered, dst_filtered)
 
-        pose = apply(pose, shift)
+        pose = apply(shift, pose)
 
         # check error
         mean_error = np.mean(distances)
