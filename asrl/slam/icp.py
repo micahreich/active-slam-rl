@@ -112,6 +112,10 @@ def icp(
     assert max_iter > 0
     assert A.shape[0] >= 2
     assert B.shape[0] >= 2
+    assert np.isnan(A).none()
+    assert np.isnan(B).none()
+    assert np.isinf(A).none()
+    assert np.isinf(B).none()
 
     # get number of dimensions
     n = A.shape[0]
