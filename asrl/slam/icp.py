@@ -139,7 +139,7 @@ def icp(
 
         # Reject pairs that have max_dist between them
         matches_filtered = distances < max_dist
-        if matches_filtered.sum() > min_filtered_matches:
+        if matches_filtered.sum() >= min_filtered_matches:
             src_filtered = src_current[matches_filtered, :m]
             dst_filtered = dst[indices[matches_filtered], :m]
         else:
