@@ -111,7 +111,8 @@ def icp(
     assert max_iter > 0
     assert A.shape[1] == B.shape[1]
 
-    # get number of dimensions
+    # get size and number of dimensions
+    n = A.shape[1]
     m = A.shape[1]
 
     # make points homogeneous, copy them to maintain the originals
@@ -134,8 +135,12 @@ def icp(
 
         # Reject pairs that have max_dist between them
         matches_filtered = distances < max_dist
-        src_filtered = src_current[matches_filtered, :m]
-        dst_filtered = dst[indices[matches_filtered], :m]
+        if matches_filtered.sum() > n / 10.0:
+            src_filtered = src_current[matches_filtered, :m]
+            dst_filtered = dst[indices[matches_filtered], :m]
+        else:
+            src_filtered = src_current
+            dst_filtered = dst
 
             # plt.gca().set_aspect('equal')
             # plt.scatter(src_current[:, 0], src_current[:, 1], c='r', alpha=0.1)

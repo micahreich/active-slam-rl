@@ -6,7 +6,7 @@ from sklearn.neighbors import KDTree
 from asrl.slam.icp import icp
 
 # Define noise models
-PRIOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(1e-3 * np.array([1.0, 1.0, 1.0]))
+PRIOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(1e-0 * np.array([1.0, 1.0, 1.0]))
 ODOMETRY_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1.0, 1.0, 1.0]))
 
 
