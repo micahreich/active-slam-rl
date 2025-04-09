@@ -6,7 +6,7 @@ from sklearn.neighbors import KDTree
 from asrl.slam.icp import icp
 
 # Define noise models
-PRIOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(1e-3 * np.array([1.0, 1.0, 1.0]))
+PRIOR_NOISE = gtsam.noiseModel.Diagonal.Sigmas(1e-0 * np.array([1.0, 1.0, 1.0]))
 ODOMETRY_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([1.0, 1.0, 1.0]))
 
 
@@ -14,9 +14,9 @@ class GraphICPSLAM2DGTSAM:
     def __init__(
             self,
             initial_pose: NDArray = np.zeros(3),
-            min_pose_delta: float = 0.3,
+            min_pose_delta: float = 0.5,
             max_loop_closure_distance: float = 2.0,
-            min_loop_closure_steps: int = 5,
+            min_loop_closure_steps: int = 3,
     ) -> None:
         self.initial_pose = gtsam.Pose2(initial_pose)
         self.min_pose_delta = min_pose_delta

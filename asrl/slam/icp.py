@@ -108,11 +108,20 @@ def icp(
         i: number of iterations to converge
     '''
 
+
     assert max_iter > 0
-    assert A.shape[1] == B.shape[1]
+    assert A.shape[0] >= 2
+    assert B.shape[0] >= 2
+    assert not np.isnan(A).any()
+    assert not np.isnan(B).any()
+    assert not np.isinf(A).any()
+    assert not np.isinf(B).any()
 
     # get number of dimensions
+    n = A.shape[0]
     m = A.shape[1]
+
+    min_filtered_matches = max(n / 10.0, 2)
 
     # make points homogeneous, copy them to maintain the originals
     src = np.ones((A.shape[0], m + 1))
@@ -134,8 +143,12 @@ def icp(
 
         # Reject pairs that have max_dist between them
         matches_filtered = distances < max_dist
-        src_filtered = src_current[matches_filtered, :m]
-        dst_filtered = dst[indices[matches_filtered], :m]
+        if matches_filtered.sum() >= min_filtered_matches:
+            src_filtered = src_current[matches_filtered, :m]
+            dst_filtered = dst[indices[matches_filtered], :m]
+        else:
+            src_filtered = src_current
+            dst_filtered = dst
 
             # plt.gca().set_aspect('equal')
             # plt.scatter(src_current[:, 0], src_current[:, 1], c='r', alpha=0.1)
