@@ -14,9 +14,9 @@ class GraphICPSLAM2DGTSAM:
     def __init__(
             self,
             initial_pose: NDArray = np.zeros(3),
-            min_pose_delta: float = 0.3,
+            min_pose_delta: float = 0.5,
             max_loop_closure_distance: float = 2.0,
-            min_loop_closure_steps: int = 5,
+            min_loop_closure_steps: int = 3,
     ) -> None:
         self.initial_pose = gtsam.Pose2(initial_pose)
         self.min_pose_delta = min_pose_delta
