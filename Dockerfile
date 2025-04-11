@@ -34,6 +34,7 @@ RUN pip install --upgrade pip
 
 # Get some useful Python packages via pip
 RUN pip install --no-cache-dir \
+    "numpy<2.0" \
     matplotlib \
     tqdm \
     jupyterlab \
@@ -42,7 +43,11 @@ RUN pip install --no-cache-dir \
     stable-baselines3 \
     yapf \
     tensorboard \
+    gtsam==4.2 \
     open3d \
+    scikit-learn \
+    spatialmath-python \
+    numba \
     "gymnasium[mujoco]" \
     "gymnasium[classic-control]"
 

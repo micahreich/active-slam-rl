@@ -1,4 +1,5 @@
 from gymnasium.envs.registration import register
+
 from .multi_goal import MultiGoal
 
 register(

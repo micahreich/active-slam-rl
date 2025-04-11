@@ -1,11 +1,10 @@
 import gymnasium as gym
-import toy_envs
-
-from stable_baselines3 import PPO, SAC
-
-from stable_baselines3.common.base_class import BaseAlgorithm
 import matplotlib.pyplot as plt
 import numpy as np
+import toy_envs
+from stable_baselines3 import PPO, SAC
+from stable_baselines3.common.base_class import BaseAlgorithm
+
 
 def evaluate(
     model: BaseAlgorithm,

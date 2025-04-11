@@ -114,3 +114,6 @@ class GraphICPSLAM2DGTSAM:
         linear = self._graph.linearize(self._poses)
         H, i = linear.hessian()
         return H
+
+    def marginal_information(self) -> NDArray[np.floating]:
+        pass

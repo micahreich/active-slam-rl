@@ -1,8 +1,8 @@
-import numpy as np
-import matplotlib.pyplot as plt
-
 import gymnasium as gym
+import matplotlib.pyplot as plt
+import numpy as np
 from gymnasium import spaces
+
 
 # copy from https://github.com/rail-berkeley/softlearning/blob/master/softlearning/environments/gym/multi_goal.py
 class MultiGoal(gym.Env):

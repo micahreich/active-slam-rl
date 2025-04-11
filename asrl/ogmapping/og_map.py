@@ -1,0 +1,241 @@
+import numpy as np
+from numpy.typing import NDArray
+import spatialmath
+
+from asrl.ogmapping.bresenham_nd import bresenhamline
+from numba import njit
+
+
+@njit
+def fast_add_at(grid, ij, value):
+    for k in range(ij.shape[0]):
+        i, j = ij[k]
+        grid[i, j] += value
+
+
+class ArrayIndexer:
+    def __init__(self, resolution: float, height: int, width: int) -> None:
+        """
+        Array indexer for converting between different coordinate systems and indexing
+        into 2D numpy arrays with (x, y) coordinates or (row, column) indices.
+
+        Parameters
+        ----------
+        resolution : float
+            The size of each cell in the grid in meters.
+        width : int
+            The width of the grid in cells.
+        height : int
+            The height of the grid in cells.
+        """
+        self.resolution = resolution
+        self.height = height
+        self.width = width
+
+    def ij_in_bounds(self, ij: NDArray) -> NDArray:
+        # Check if (i, j) indices are within the bounds of the grid
+        return (0 <= ij[:, 0]) & (ij[:, 0] < self.height) & (0 <= ij[:, 1]) & (ij[:, 1] < self.width)
+    
+    def xy_r_in_bounds(self, xy: NDArray) -> NDArray:
+        # Check if (x, y) coordinates in the map's resolution are within the bounds of the grid
+        return (0 <= xy[:, 0]) & (xy[:, 0] < self.width) & (0 <= xy[:, 1]) & (xy[:, 1] < self.height)
+    
+    def xy_r_to_ij(self, xy: NDArray) -> NDArray:
+        # Convert (x, y) coordinates in the map's resolution to row-column (i, j) indices into the map
+        squeeze_back = len(xy.shape) == 1
+        if squeeze_back:
+            xy = xy[np.newaxis, :]
+            
+        ij = np.zeros_like(xy, dtype=np.int32)
+        ij[:, 0] = self.height - xy[:, 1] - 1
+        ij[:, 1] = xy[:, 0]
+        
+        if squeeze_back:
+            return np.squeeze(ij)
+        
+        return ij
+    
+    def xy_m_to_xy_r(self, xy: NDArray) -> NDArray:
+        # Convert (x, y) coordinates in meters to (x, y) coordinates in the map's resolution
+        squeeze_back = len(xy.shape) == 1
+        if squeeze_back:
+            xy = xy[np.newaxis, :]
+        
+        xy_r = np.zeros_like(xy, dtype=np.int32)
+        xy_r[:, 0] = np.floor(xy[:, 0] / self.resolution).astype(np.int32)
+        xy_r[:, 1] = np.floor(xy[:, 1] / self.resolution).astype(np.int32)
+        
+        if squeeze_back:
+            return np.squeeze(xy_r)
+        
+        return xy_r
+    
+    def xy_m_to_ij(self, xy: NDArray) -> NDArray:
+        # Convert (x, y) coordinates in meters to row-column (i, j) indices into the map
+        squeeze_back = len(xy.shape) == 1
+        if squeeze_back:
+            xy = xy[np.newaxis, :]
+        
+        ij = np.zeros_like(xy, dtype=np.int32)
+        ij[:, 0] = self.height - np.floor(xy[:, 1] / self.resolution).astype(np.int32) - 1
+        ij[:, 1] = np.floor(xy[:, 0] / self.resolution).astype(np.int32)
+        
+        if squeeze_back:
+            return np.squeeze(ij)
+        
+        return ij
+    
+    def ij_to_xy_m(self, ij: NDArray) -> NDArray:
+        # Convert row-column (i, j) indices into the map to (x, y) coordinates in meters
+        squeeze_back = len(ij.shape) == 1
+        if squeeze_back:
+            ij = ij[np.newaxis, :]
+        
+        xy_m = np.zeros_like(ij, dtype=np.float32)
+        xy_m[:, 0] = (ij[:, 1] + 0.5) * self.resolution
+        xy_m[:, 1] = (self.height - ij[:, 0] - 1 + 0.5) * self.resolution
+        
+        if squeeze_back:
+            return np.squeeze(xy_m)
+        
+        return xy_m
+    
+
+class OccupancyGridMapper:
+    def __init__(self,
+                 resolution: float,
+                 width_m: float,
+                 height_m: float,
+                 p_hit: float = 0.9,
+                 p_miss: float = 0.1) -> None:
+        # Resolution refers to the size of each cell in the grid [m]        
+        self.l_occ = np.log(p_hit / (1 - p_hit))  # Log-odds for occupied cell
+        self.l_free = np.log(p_miss / (1 - p_miss))  # Log-odds for free cell
+        self.l_unknown = np.log(0.5 / (1 - 0.5))  # Log-odds for unknown cell
+        
+        self.l_occ_max = np.log(0.99 / (1 - 0.99))  # Log-odds for max occupied cell
+        self.l_free_min = np.log(0.01 / (1 - 0.01))  # Log-odds for max free cell
+        
+        self.width = int(np.ceil(width_m / resolution))
+        self.height = int(np.ceil(height_m / resolution))
+        self.grid = np.full((self.height, self.width), self.l_unknown, dtype=np.float32)
+        
+        self._indexer = ArrayIndexer(resolution, self.height, self.width)
+        
+        # TODO: see if pre-computing the bresenham lines makes this faster
+        # origin = 
+        # self._bresenham_lines = bresenhamline()
+    
+    def reset(self) -> None:
+        """
+        Reset the occupancy grid to unknown state.
+        """
+        self.grid.fill(self.l_unknown)
+    
+    def to_prob_map(self) -> NDArray:
+        """
+        Convert log-odds to probability.
+        
+        Returns:
+            NDArray: Probability values.
+        """
+        return 1.0 / (1.0 + np.exp(-self.grid))
+    
+    def process_scan(self, pose: NDArray, scan_points_b_B: NDArray) -> None:
+        """
+        Process a single scan and update the occupancy grid.
+        
+        Args:
+            pose (NDArray): The robot's pose (x, y, theta).
+            scan_points (NDArray): The (x, y) points from the laser scan.
+        """
+        W_R_B = spatialmath.base.rot2(pose[2])
+        
+        scan_points_b_W = scan_points_b_B @ W_R_B.T
+        
+        scan_points_xy_r_b_W = self._indexer.xy_m_to_xy_r(scan_points_b_W)
+        origin = np.zeros_like(scan_points_xy_r_b_W)
+        
+        rays_xy_r, max_iter = bresenhamline(origin, scan_points_xy_r_b_W, max_iter=-1)
+        rays_xy_r = rays_xy_r.reshape((-1, max_iter, 2))
+
+        # Bresenham computes max_iter points along the line for each scan point,
+        # but some of these will go beyond the scan point
+        ray_dists = np.linalg.norm(rays_xy_r, axis=-1)
+        scan_dists = np.linalg.norm(scan_points_xy_r_b_W, axis=-1)[:, np.newaxis]
+        
+        mask_pre = (ray_dists < scan_dists).flatten()
+        mask_hit = (np.isclose(ray_dists, scan_dists)).flatten()
+
+        pose_xy_r = self._indexer.xy_m_to_xy_r(pose[:2])
+        pose_xy_i, pose_xy_j = self._indexer.xy_r_to_ij(pose_xy_r)
+        
+        rays_xy_r = rays_xy_r.reshape((-1, 2))
+        cell_xy_r_free = rays_xy_r[mask_pre] + pose_xy_r
+        cell_xy_r_hit = rays_xy_r[mask_hit] + pose_xy_r
+        
+        mask_in_bounds_free = self._indexer.xy_r_in_bounds(cell_xy_r_free)
+        mask_in_bounds_hit = self._indexer.xy_r_in_bounds(cell_xy_r_hit)
+        
+        cell_xy_r_free = cell_xy_r_free[mask_in_bounds_free]
+        cell_xy_r_hit = cell_xy_r_hit[mask_in_bounds_hit]
+        
+        # Then convert to (i, j) indices to index into grid
+        grid_ij_free = self._indexer.xy_r_to_ij(cell_xy_r_free)
+        grid_ij_hit = self._indexer.xy_r_to_ij(cell_xy_r_hit)
+        
+        fast_add_at(self.grid, grid_ij_free, self.l_free)
+        fast_add_at(self.grid, grid_ij_hit, self.l_occ)
+      
+        self.grid[pose_xy_i, pose_xy_j] += self.l_free
+        
+        # Clip the log-odds values to avoid under/overflow
+        self.grid = np.clip(self.grid, self.l_free_min, self.l_occ_max)
+
+
+if __name__ == "__main__":
+    import cProfile
+    import pstats
+    import io
+    
+    og_mapper = OccupancyGridMapper(resolution=0.5, width_m=4, height_m=4)
+    
+    # Test the indexing
+    xy = np.array([[0.0, 0.0],
+                   [1.0, 1.0],
+                   [0.5, 3.5],
+                   [2.4, 1.2]])
+    ij = og_mapper._indexer.xy_m_to_ij(xy)
+    print(f"xy: \n{xy}")
+    print(f"ij: \n{ij}")
+    
+    # Do some profiling
+    og_mapper = OccupancyGridMapper(resolution=0.1, width_m=10, height_m=10,
+                                    p_hit=0.9, p_miss=0.2)
+
+    pose = np.array([5, 5, 0])
+    angles = np.linspace(0, 2*np.pi, 360, endpoint=False)
+    radii = 1.0 + 2.0 * np.cumsum(np.ones_like(angles)) / len(angles)
+
+    cos_theta, sin_theta = np.cos(angles), np.sin(angles)
+    xs = radii * cos_theta
+    ys = radii * sin_theta
+    points = np.stack((xs, ys), axis=-1)
+    
+    og_mapper.process_scan(pose, points)
+    og_mapper.reset()
+
+    profiler = cProfile.Profile(timeunit=1)
+    profiler.enable()
+    og_mapper.process_scan(pose, points)
+    profiler.disable()
+
+    # Collect stats
+    stream = io.StringIO()
+    stats = pstats.Stats(profiler, stream=stream).sort_stats('cumtime')  # or 'tottime'
+    stats.print_stats()
+
+    # Print output
+    print(stream.getvalue())
+    
+    
