@@ -1,3 +1,4 @@
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
@@ -53,18 +54,27 @@ def create_grid_xy(x_range, y_range, step):
 
 
 class ArrayMap:
-    def __init__(self, arr: NDArray, resolution=1.0, verbose=False):
+    def __init__(self, arr: str, resolution=1.0, verbose=False):
         """
         ArrayMap class to build a 2D map with open3d geometry from a 2D numpy idealized
         occupancy grid.
 
         Parameters
         ----------
-        arr : NDArray
-            2D numpy array representing the occupancy grid; 0 for free space, 1 elsewhere.
-        scale : float, optional
+        arr : str
+            The array to be converted into a map. It can be a string representing the file path
+            or a string representation of the array itself. The first line should contain
+            the characters representing occupied and free space, respectively. Then, the map lines follow.
+        resolution : float, optional
             The scale of the map in meters, by default 1.0. The size of each cell in the input grid in meters.
         """
+        if os.path.isfile(arr):
+            with open(arr, 'r') as f:
+                lines = f.readlines()
+        else:
+            lines = arr.strip().splitlines()
+            
+        arr = self._map_from_lines(lines)
         arr = np.pad(arr, pad_width=1, mode='constant', constant_values=0)
 
         structure = np.ones((3, 3), dtype=int)
@@ -78,7 +88,11 @@ class ArrayMap:
                 
         self._walls = walls[row_start:row_end+1, col_start:col_end+1]
         self._free_space = arr[row_start:row_end+1, col_start:col_end+1]
-        self._indxer = ArrayIndexer(1.0, *self._walls.shape) # TODO: add resolution to this
+        
+        self.height, self.width = self._walls.shape
+        self.resolution = resolution
+        
+        self._indxer = ArrayIndexer(1.0, self.height, self.width) # TODO: add resolution to this
         
         if verbose:
             print(f"Walls shape: {self._walls.shape}, Free space shape: {self._free_space.shape}")
@@ -93,6 +107,19 @@ class ArrayMap:
         for cube in self._wall_o3d_geometries:
             self._raycasting_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(cube))
     
+    def _map_from_lines(self, lines: list[str]):
+        # Parse character legend
+        occupied_char, free_char = lines[0].strip()
+        map_lines = lines[1:]
+
+        # Convert map lines into binary grid
+        grid = np.array([
+            [0 if char == occupied_char else 1 for char in line.strip()]
+            for line in map_lines
+        ], dtype=np.uint8)
+
+        return grid
+
     def _to_o3d_geometry(self, walls: NDArray):        
         def create_cube(xy_coord):
             x, y = xy_coord - 0.5
@@ -108,16 +135,26 @@ class ArrayMap:
         
         return cube_geometries
     
-    def max_travel_distance_along_ray(self, pose: NDArray, ray_direction: NDArray) -> float:
+    def sample_free_space(self, output_type='xy_m'):
+        assert output_type in ['ij', 'xy_m', 'xy_r'], f"Invalid output type: {output_type}"
+        
+        index = np.random.randint(self._free_space_indices_ij.shape[0])
+        free_space_point_ij = self._free_space_indices_ij[index]
+        
+        if output_type == 'ij': return free_space_point_ij
+        if output_type == 'xy_m': return self._indxer.ij_to_xy_m(free_space_point_ij)
+        if output_type == 'xy_r': return self._indxer.ij_to_xy_r(free_space_point_ij)
+    
+    def max_travel_distance_along_ray(self, position: NDArray, angle_W: NDArray) -> float:
         """
         Calculate the maximum travel distance along a ray from a given pose in the map.
 
         Parameters
         ----------
-        pose : NDArray
-            The pose of the robot in the map.
-        ray_direction : NDArray
-            The direction of the ray.
+        position : NDArray
+            The position of the ray in the map (x, y) in meters.
+        angle_W : NDArray
+            The direction of the ray in radians with respect to the world frame.
 
         Returns
         -------
@@ -125,8 +162,9 @@ class ArrayMap:
             The maximum travel distance along the ray before hitting an obstacle.
         """
         raycast_vectors = np.zeros((1, 6), dtype=np.float32)
-        raycast_vectors[0, 3:5] = ray_direction / np.linalg.norm(ray_direction)
-        raycast_vectors[0, :2] = pose[:2]
+        raycast_vectors[0, 3] = np.cos(angle_W)
+        raycast_vectors[0, 4] = np.sin(angle_W)
+        raycast_vectors[0, :2] = position
         
         out = self._raycasting_scene.cast_rays(raycast_vectors)
         t_hit = out['t_hit'].numpy()
@@ -134,76 +172,63 @@ class ArrayMap:
         return t_hit[0]
     
     def raycast_in_map(self,
-                       pose: NDArray,
+                       poses: NDArray,
                        r_max: float = np.inf,
                        angle_range_deg: float = [-180, 180],
                        horizontal_resolution_deg: float = 2.0,
                        range_noise_std_m: float = 0.0254):
-        # Build the array of raycast vectors where each row is [x, y, z, u_x, u_y, u_z]
-        # where (x, y, z) is the origin of the ray and (u_x, u_y, u_z) is the direction of the ray.
+        is_batched = poses.ndim == 2
+        if not is_batched:
+            poses = poses[None, :]
+    
         directions = np.deg2rad(np.arange(*angle_range_deg, horizontal_resolution_deg, dtype=np.float32))
-        n_rays = directions.shape[0]
+        n_rays = len(directions)
+        B = poses.shape[0]
 
-        raycast_vectors = np.zeros((n_rays, 6), dtype=np.float32)
+        raycast_vectors = np.zeros((B * n_rays, 6), dtype=np.float32)
 
-        raycast_vectors[:, [3, 4]] = np.column_stack([np.cos(directions), np.sin(directions)])
-        raycast_vectors[:, [0, 1]] = pose[:2]
-        raycast_vectors[:, 2] = 0.5 * self._indxer.resolution
+        dir_cos = np.cos(directions)
+        dir_sin = np.sin(directions)
+
+        raycast_vectors[:, 3] = np.tile(dir_cos, B)
+        raycast_vectors[:, 4] = np.tile(dir_sin, B)
+        raycast_vectors[:, :2] = np.repeat(poses[:, :2], n_rays, axis=0)
+        raycast_vectors[:, 2] = 0.5 * self.resolution
         
         # Perform raycasting
         out = self._raycasting_scene.cast_rays(raycast_vectors)
         t_hit = out['t_hit'].numpy()
-        valid_rays_mask = (t_hit <= r_max) & np.isfinite(t_hit)
+        t_hit += np.random.normal(0, range_noise_std_m, size=t_hit.shape)
         
-        t_hit[valid_rays_mask] += np.random.normal(0, range_noise_std_m, size=t_hit[valid_rays_mask].shape)
+        # Rotate points into body frame
+        B_R_W_array = np.array([spatialmath.base.rot2(pose[2]).T for pose in poses])
+        points_b_W = np.reshape(t_hit[:, None] * raycast_vectors[:, 3:5], (B, n_rays, 2))
+        points_b_B = points_b_W @ B_R_W_array.transpose(0, 2, 1)
         
-        # Convert the raycast vectors to points in body frame
-        W_R_B = spatialmath.base.rot2(pose[2])
-        B_R_W = W_R_B.T
+        mask_valid = np.reshape((t_hit <= r_max) & np.isfinite(t_hit), (B, n_rays))
+        result = [
+            points_b_B[i, ...][mask_valid[i]] for i in range(B)
+        ]
         
-        points_b_W = t_hit[valid_rays_mask, None] * raycast_vectors[valid_rays_mask, 3:5]
-        points_b_B = points_b_W @ B_R_W.T
-        
-        return points_b_B
+        if not is_batched:
+            return  result[0]
+
+        return result
     
 
 if __name__ == "__main__":
-    og1 = np.array([
-        [0,0,0,0,0,0,0,0,0,0],
-        [0,1,1,0,1,1,1,0,1,0],
-        [0,1,1,0,1,1,1,0,1,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,0,0,0,1,1,0,0,0,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,1,0,0,0,0,0,0,1,0],
-        [0,1,1,1,1,1,1,1,1,0],
-        [0,0,0,0,0,0,0,0,0,0],
-    ])
-    
-    
-    og3 = np.array([
-        [0,0,0,0,0,0,0,0],
-        [0,1,1,0,1,1,1,0],
-        [0,1,0,0,1,0,1,0],
-        [0,1,0,1,1,0,1,0],
-        [0,1,0,0,0,0,1,0],
-        [0,1,1,1,1,1,1,0],
-        [0,0,0,0,0,0,0,0],
-    ])
-
-
-    m = ArrayMap(og1, resolution=1)
+    m = ArrayMap('/home/dev/workspace/asrl/maps/floorplan1.txt', resolution=1)
     
     coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
     o3d.visualization.draw_geometries(m._wall_o3d_geometries + [coordinate_frame])
     
-    pose = np.array([1.5, 6.5, np.deg2rad(90)])
+    pose = np.array([1.5, 6.5, np.deg2rad(10)])
     points = m.raycast_in_map(
-        pose
+        pose,
     )
     
     fig, ax = plt.subplots(1,1, figsize=(8, 8))
     ax.scatter(points[:, 0], points[:, 1], c='r', s=1, label='Hit Points')
-    ax.scatter([0], [0], c='b', s=10, marker='x', label='Robot')
+    ax.scatter([0], [0], c='b', s=20, marker='x', label='Robot')
     ax.set_aspect('equal')
     plt.show()

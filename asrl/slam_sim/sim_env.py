@@ -1,10 +1,16 @@
 import numpy as np
 from numpy.typing import NDArray
 from spatialmath.base import angdiff
+import matplotlib.pyplot as plt
+
+from asrl.ogmapping.og_map import OccupancyGridMapper
+from asrl.slam_sim.array_map import ArrayMap
 
 
 class SimulationEnvironment:
     def __init__(self,
+                 array_map: ArrayMap = None,
+                 og_map_resolution: float = 0.1,
                  omega: float = 1.0,
                  v: float = 1.0,
                  dt=0.1,
@@ -13,12 +19,36 @@ class SimulationEnvironment:
         self.omega = omega  # Angular velocity
         self.v = v  # Linear velocity
         self.dt = dt  # Time step
-        
         self.travel_cut_short_dist_m = travel_cut_short_dist_m
+        self.array_map = array_map
+        self.og_map = OccupancyGridMapper(og_map_resolution,
+                                          width_m=self.array_map.resolution * self.array_map.width,
+                                          height_m=self.array_map.resolution * self.array_map.height)
     
-    def step(self):
+    def reset(self) -> None:
+        """
+        Reset the simulation environment to a random pose in free space and reset the occupancy grid map.
+        """
+        pose = np.empty((3,))
+        pose[:2] = self.array_map.sample_free_space(output_type='xy_m')
+        pose[2] = np.random.uniform(0, 2 * np.pi)
+        
+        self.pose = pose
+        self.og_map.reset()
+    
+    def step(self, action: NDArray) -> None:
         # Given an action, step the sim forward until action is terminated
-        pass
+        angle, distance = action
+        max_travel_distance = self.array_map.max_travel_distance_along_ray(self.pose[:2], self.pose[2] + angle)
+        travel_distance = max(0, min(max_travel_distance, distance) - self.travel_cut_short_dist_m)
+        
+        traveled_poses = self.travel_along_ray(angle, travel_distance)
+        scans = self.array_map.raycast_in_map(traveled_poses)
+        
+        for scan in scans:
+            self.og_map.update(scan)
+        
+        self.pose = traveled_poses[-1]
     
     def travel_along_ray(self, angle: NDArray, distance: float) -> NDArray:
         """
@@ -40,7 +70,7 @@ class SimulationEnvironment:
         
         poses_turn = np.empty((N, 3))
         poses_turn[:, 2] = theta0 + np.sign(angle) * np.minimum(abs(self.omega) * t, abs(angle))
-        poses_turn[:, :2] = x0
+        poses_turn[:, :2] = self.pose[:2]
     
         # Determine poses while moving straight
         ray = np.array([
@@ -55,16 +85,12 @@ class SimulationEnvironment:
         
         poses_straight = np.empty((N, 3))
         poses_straight[:, 2] = theta0 + angle
-        poses_straight[:, :2] = x0 + ray * ds[:, None]
+        poses_straight[:, :2] = self.pose[:2] + ray * ds[:, None]
         
         # Combine the two segments
         poses = np.vstack((poses_turn, poses_straight))
         
         return poses
-
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 def plot_poses(poses, scale=0.2, ax=None):
     """
@@ -80,10 +106,6 @@ def plot_poses(poses, scale=0.2, ax=None):
         fig, ax = plt.subplots()
         ax.set_aspect('equal')
 
-    x = poses[:, 0]
-    y = poses[:, 1]
-    theta = poses[:, 2]
-
     for xi, yi, ti in poses:
         circle = plt.Circle((xi, yi), radius=scale * 0.5, edgecolor='black', facecolor='none')
         ax.add_patch(circle)
@@ -97,11 +119,14 @@ def plot_poses(poses, scale=0.2, ax=None):
 
 
 def test_travel_along_ray():
-    env = SimulationEnvironment(omega=1.0, v=1.0, dt=0.1)
-    env.pose = np.array([0, 0, 0])  # Initial pose
+    array_map = ArrayMap('/home/dev/workspace/asrl/maps/floorplan1.txt', resolution=1, verbose=True)
+    env = SimulationEnvironment(array_map, omega=1.0, v=1.0, dt=0.25)
+    env.pose = np.array([2.0, 1.0, np.pi/2])  # Initial pose
     angle = np.pi / 4  # 45 degrees
-    distance = 1.0  # 1 meter
+    distance = 1.0
     poses = env.travel_along_ray(angle, distance)
+    
+    print(f"Traveled poses: {poses}")
     
     ax = plot_poses(poses)
     plt.show()

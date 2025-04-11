@@ -100,6 +100,21 @@ class ArrayIndexer:
         
         return xy_m
     
+    def ij_to_xy_r(self, ij: NDArray) -> NDArray:
+        # Convert row-column (i, j) indices into the map to (x, y) coordinates in the map's resolution
+        squeeze_back = len(ij.shape) == 1
+        if squeeze_back:
+            ij = ij[np.newaxis, :]
+        
+        xy_r = np.zeros_like(ij, dtype=np.float32)
+        xy_r[:, 0] = ij[:, 1]
+        xy_r[:, 1] = self.height - ij[:, 0] - 1
+        
+        if squeeze_back:
+            return np.squeeze(xy_r)
+        
+        return xy_r
+    
 
 class OccupancyGridMapper:
     def __init__(self,
@@ -165,7 +180,7 @@ class OccupancyGridMapper:
         scan_dists = np.linalg.norm(scan_points_xy_r_b_W, axis=-1)[:, np.newaxis]
         
         mask_pre = (ray_dists < scan_dists).flatten()
-        mask_hit = (np.isclose(ray_dists, scan_dists)).flatten()
+        mask_hit = (np.isclose(ray_dists, scan_dists, atol=1e-6)).flatten()
 
         pose_xy_r = self._indexer.xy_m_to_xy_r(pose[:2])
         pose_xy_i, pose_xy_j = self._indexer.xy_r_to_ij(pose_xy_r)
