@@ -35,6 +35,7 @@ RUN pip install --upgrade pip
 # Get some useful Python packages via pip
 RUN pip install --no-cache-dir \
     "numpy<2.0" \
+    "jax[cuda12]" \
     matplotlib \
     tqdm \
     jupyterlab \

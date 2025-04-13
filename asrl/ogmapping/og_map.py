@@ -14,7 +14,7 @@ def fast_add_at(grid, ij, value):
 
 
 class ArrayIndexer:
-    def __init__(self, resolution: float, height: int, width: int) -> None:
+    def __init__(self, resolution: float, height_px: int, width_px: int) -> None:
         """
         Array indexer for converting between different coordinate systems and indexing
         into 2D numpy arrays with (x, y) coordinates or (row, column) indices.
@@ -29,16 +29,16 @@ class ArrayIndexer:
             The height of the grid in cells.
         """
         self.resolution = resolution
-        self.height = height
-        self.width = width
+        self.height_px = height_px
+        self.width_px = width_px
 
     def ij_in_bounds(self, ij: NDArray) -> NDArray:
         # Check if (i, j) indices are within the bounds of the grid
-        return (0 <= ij[:, 0]) & (ij[:, 0] < self.height) & (0 <= ij[:, 1]) & (ij[:, 1] < self.width)
+        return (0 <= ij[:, 0]) & (ij[:, 0] < self.height_px) & (0 <= ij[:, 1]) & (ij[:, 1] < self.width_px)
     
     def xy_r_in_bounds(self, xy: NDArray) -> NDArray:
         # Check if (x, y) coordinates in the map's resolution are within the bounds of the grid
-        return (0 <= xy[:, 0]) & (xy[:, 0] < self.width) & (0 <= xy[:, 1]) & (xy[:, 1] < self.height)
+        return (0 <= xy[:, 0]) & (xy[:, 0] < self.width_px) & (0 <= xy[:, 1]) & (xy[:, 1] < self.height_px)
     
     def xy_r_to_ij(self, xy: NDArray) -> NDArray:
         # Convert (x, y) coordinates in the map's resolution to row-column (i, j) indices into the map
@@ -47,7 +47,7 @@ class ArrayIndexer:
             xy = xy[np.newaxis, :]
             
         ij = np.zeros_like(xy, dtype=np.int32)
-        ij[:, 0] = self.height - xy[:, 1] - 1
+        ij[:, 0] = self.height_px - xy[:, 1] - 1
         ij[:, 1] = xy[:, 0]
         
         if squeeze_back:
@@ -77,7 +77,7 @@ class ArrayIndexer:
             xy = xy[np.newaxis, :]
         
         ij = np.zeros_like(xy, dtype=np.int32)
-        ij[:, 0] = self.height - np.floor(xy[:, 1] / self.resolution).astype(np.int32) - 1
+        ij[:, 0] = self.height_px - np.floor(xy[:, 1] / self.resolution).astype(np.int32) - 1
         ij[:, 1] = np.floor(xy[:, 0] / self.resolution).astype(np.int32)
         
         if squeeze_back:
@@ -93,7 +93,7 @@ class ArrayIndexer:
         
         xy_m = np.zeros_like(ij, dtype=np.float32)
         xy_m[:, 0] = (ij[:, 1] + 0.5) * self.resolution
-        xy_m[:, 1] = (self.height - ij[:, 0] - 1 + 0.5) * self.resolution
+        xy_m[:, 1] = (self.height_px - ij[:, 0] - 1 + 0.5) * self.resolution
         
         if squeeze_back:
             return np.squeeze(xy_m)
@@ -108,7 +108,7 @@ class ArrayIndexer:
         
         xy_r = np.zeros_like(ij, dtype=np.float32)
         xy_r[:, 0] = ij[:, 1]
-        xy_r[:, 1] = self.height - ij[:, 0] - 1
+        xy_r[:, 1] = self.height_px - ij[:, 0] - 1
         
         if squeeze_back:
             return np.squeeze(xy_r)
@@ -122,7 +122,9 @@ class OccupancyGridMapper:
                  width_m: float,
                  height_m: float,
                  p_hit: float = 0.9,
-                 p_miss: float = 0.1) -> None:
+                 p_miss: float = 0.1,
+                 max_height_px=512,
+                 max_width_px=512) -> None:
         # Resolution refers to the size of each cell in the grid [m]        
         self.l_occ = np.log(p_hit / (1 - p_hit))  # Log-odds for occupied cell
         self.l_free = np.log(p_miss / (1 - p_miss))  # Log-odds for free cell
@@ -131,15 +133,43 @@ class OccupancyGridMapper:
         self.l_occ_max = np.log(0.99 / (1 - 0.99))  # Log-odds for max occupied cell
         self.l_free_min = np.log(0.01 / (1 - 0.01))  # Log-odds for max free cell
         
-        self.width = int(np.ceil(width_m / resolution))
-        self.height = int(np.ceil(height_m / resolution))
-        self.grid = np.full((self.height, self.width), self.l_unknown, dtype=np.float32)
+        self.resolution = resolution
         
-        self._indexer = ArrayIndexer(resolution, self.height, self.width)
+        height_px, width_px = self.compute_map_size(resolution, height_m, width_m)
+        assert max_height_px >= height_px and max_width_px >= width_px, \
+            f"Map size ({height_px, width_px}) with resolution {resolution} exceeds the maximum size: {max_height_px, max_width_px}"
+        self.height_px = max_height_px
+        self.width_px = max_width_px
+        self.height_m = self.height_px * self.resolution
+        self.width_m = self.width_px * self.resolution
+        
+        self.grid = np.full((self.height_px, self.width_px), self.l_unknown, dtype=np.float32)
+        
+        self._indexer = ArrayIndexer(resolution, self.height_px, self.width_px)
         
         # TODO: see if pre-computing the bresenham lines makes this faster
         # origin = 
         # self._bresenham_lines = bresenhamline()
+    
+    @staticmethod
+    def compute_map_size(resolution: float, height_m: float, width_m: float) -> tuple[int, int]:
+        """
+        Compute the size of the occupancy grid map based on resolution and dimensions.
+        
+        Args:
+            resolution (float): The size of each cell in the grid in meters.
+            width_m (float): The width of the grid in meters.
+            height_m (float): The height of the grid in meters.
+        
+        Returns:
+            tuple[int, int]: The height and width of the grid in cells.
+        """
+        return int(np.ceil(height_m / resolution)), int(np.ceil(width_m / resolution))
+    
+    @property
+    def free_area_m2(self, p_occupied_cutoff=0.2) -> int:
+        log_odds_cutoff = np.log(p_occupied_cutoff / (1 - p_occupied_cutoff))
+        return np.count_nonzero(self.grid < log_odds_cutoff) * self.resolution**2
     
     def reset(self) -> None:
         """

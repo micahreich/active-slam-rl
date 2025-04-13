@@ -54,7 +54,7 @@ def create_grid_xy(x_range, y_range, step):
 
 
 class ArrayMap:
-    def __init__(self, arr: str, resolution=1.0, verbose=False):
+    def __init__(self, arr: str, resolution=None, verbose=False):
         """
         ArrayMap class to build a 2D map with open3d geometry from a 2D numpy idealized
         occupancy grid.
@@ -71,6 +71,8 @@ class ArrayMap:
         if os.path.isfile(arr):
             with open(arr, 'r') as f:
                 lines = f.readlines()
+                resolution = float(lines[0].strip())
+                lines = lines[1:]
         else:
             lines = arr.strip().splitlines()
             
@@ -89,16 +91,18 @@ class ArrayMap:
         self._walls = walls[row_start:row_end+1, col_start:col_end+1]
         self._free_space = arr[row_start:row_end+1, col_start:col_end+1]
         
-        self.height, self.width = self._walls.shape
         self.resolution = resolution
+        self.height_px, self.width_px = self._walls.shape
+        self.height_m, self.width_m = self.height_px * self.resolution, self.width_px * self.resolution
         
-        self._indxer = ArrayIndexer(1.0, self.height, self.width) # TODO: add resolution to this
+        self._indxer = ArrayIndexer(1.0, self.height_px, self.width_px) # TODO: add resolution to this
         
         if verbose:
             print(f"Walls shape: {self._walls.shape}, Free space shape: {self._free_space.shape}")
             print(self._walls)
         
         self._free_space_indices_ij = np.argwhere(self._free_space == 1)
+        self.free_area_m2 = len(self._free_space_indices_ij) * (self.resolution ** 2)
         
         # Create the open3d geometries for visualization and raycasting
         self._wall_o3d_geometries = self._to_o3d_geometry(self._walls)
@@ -173,7 +177,7 @@ class ArrayMap:
     
     def raycast_in_map(self,
                        poses: NDArray,
-                       r_max: float = np.inf,
+                       r_max_m: float = np.inf,
                        angle_range_deg: float = [-180, 180],
                        horizontal_resolution_deg: float = 2.0,
                        range_noise_std_m: float = 0.0254):
@@ -205,7 +209,7 @@ class ArrayMap:
         points_b_W = np.reshape(t_hit[:, None] * raycast_vectors[:, 3:5], (B, n_rays, 2))
         points_b_B = points_b_W @ B_R_W_array.transpose(0, 2, 1)
         
-        mask_valid = np.reshape((t_hit <= r_max) & np.isfinite(t_hit), (B, n_rays))
+        mask_valid = np.reshape((t_hit <= r_max_m) & np.isfinite(t_hit), (B, n_rays))
         result = [
             points_b_B[i, ...][mask_valid[i]] for i in range(B)
         ]
