@@ -7,7 +7,7 @@ import numpy as np
 from asrl.slam_sim.sim_env import SimulationEnvironment
 
 
-MAP_SIZE_PX = (64, 64)  # Size of the occupancy grid map image in pixels
+MAP_SIZE_PX = (220, 220)  # Size of the occupancy grid map image in pixels
 
 
 class GymExploreEnv(gym.Env):
@@ -22,7 +22,8 @@ class GymExploreEnv(gym.Env):
         self.episode_maxlen_s = episode_maxlen_s
         self.percentage_of_map_to_explore = percentage_of_map_to_explore
 
-        # Define observation space
+        # Define observation space; positions are normalized to [0, 1] by dividing by the occupancy grid map size
+        # and the angle is normalized to [0, 1] by dividing by 2 * pi
         self.observation_space = spaces.Dict({
             "pose": spaces.Box(
                 low=0.0, high=1.0, shape=(3,), dtype=np.float32
@@ -32,10 +33,11 @@ class GymExploreEnv(gym.Env):
             ),
         })
 
-        # Define action space as (angle, distance)
+        # Define action space as (angle, distance); angle is normalized to [-pi, pi]rad and distance are
+        # limited to [0, 100]m
         self.action_space = spaces.Box(
-            low=np.array([0.0, 0.0], dtype=np.float32),
-            high=np.array([2*np.pi, 1e2], dtype=np.float32),
+            low=np.array([-np.pi, 0.0], dtype=np.float32),
+            high=np.array([np.pi, 1e2], dtype=np.float32),
             dtype=np.float32
         )
         

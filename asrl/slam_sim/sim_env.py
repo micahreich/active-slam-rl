@@ -92,10 +92,10 @@ class SimulationEnvironment:
         - The agent's final pose after movement is set to the last pose along the traveled ray.
         """
         angle, distance = action
-        angle = angle_wrap(angle, mode='0:2pi')
+        angle = angle_wrap(angle, mode='-pi:pi')
         
         max_travel_distance = self.array_map.max_travel_distance_along_ray(self.pose[:2], self.pose[2] + angle)
-        travel_distance = max(0, min(max_travel_distance, distance) - self._travel_cut_short_dist_m)
+        travel_distance = max(0, min(max_travel_distance - self._travel_cut_short_dist_m, distance))
         
         traveled_poses = self.travel_along_ray(angle, travel_distance)
         scans = self.array_map.raycast_in_map(traveled_poses)
@@ -144,7 +144,7 @@ class SimulationEnvironment:
         ds = np.minimum(self._v * t, distance)
         
         poses_straight = np.empty((N, 3))
-        poses_straight[:, 2] = theta0 + angle
+        poses_straight[:, 2] = angle_wrap(theta0 + angle, mode='0:2pi')
         poses_straight[:, :2] = self.pose[:2] + ray * ds[:, None]
         
         # Combine the two segments
@@ -179,10 +179,10 @@ def plot_poses(poses, scale=0.2, ax=None):
 
 
 def test_travel_along_ray():
-    array_map = ArrayMap('/home/dev/workspace/asrl/maps/floorplan1.txt', resolution=1, verbose=True)
-    env = SimulationEnvironment(array_map, omega=1.0, v=1.0, dt=0.25)
+    env = SimulationEnvironment('/home/dev/workspace/asrl/maps/floorplan1.txt', omega=1.0, v=1.0, dt=0.25,
+                                map_image_size_px=(256, 256))
     env.pose = np.array([2.0, 1.0, np.pi/2])  # Initial pose
-    angle = np.pi / 4  # 45 degrees
+    angle = -np.pi / 4  # 45 degrees
     distance = 1.0
     poses = env.travel_along_ray(angle, distance)
     
