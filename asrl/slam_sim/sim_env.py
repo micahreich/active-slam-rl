@@ -105,15 +105,20 @@ class SimulationEnvironment:
         travel_distance = max(0, min(max_travel_distance - self._travel_cut_short_dist_m, distance))
         
         traveled_poses = self.travel_along_ray(angle, travel_distance)
-        scans = self.array_map.raycast_in_map(traveled_poses)
         timesteps_elapsed = len(traveled_poses)
-        
-        for pose, scan in zip(traveled_poses, scans):
-            self.og_map.process_scan(pose, scan)
-        
-        self.pose = traveled_poses[-1]
+
+        if timesteps_elapsed > 0:
+            scans = self.array_map.raycast_in_map(traveled_poses)
+            timesteps_elapsed = len(traveled_poses)
+            
+            for pose, scan in zip(traveled_poses, scans):
+                self.og_map.process_scan(pose, scan)
+            
+            self.pose = traveled_poses[-1]
+        else:
+            timesteps_elapsed = 1
+            
         self.timesteps_elapsed += timesteps_elapsed
-        
         return self.get_observation(), timesteps_elapsed
     
     def travel_along_ray(self, angle: NDArray, distance: float) -> NDArray:
@@ -129,31 +134,40 @@ class SimulationEnvironment:
         """
         x0, y0, theta0 = self.pose
         
-        # Determine poses while turning to the desired angle
-        T = abs(angle) / abs(self._omega)
-        N = int(np.ceil(T / self._dt))
-        t = np.linspace(self._dt, N * self._dt, N)
-        angles = np.sign(angle) * np.minimum(abs(self._omega) * t, abs(angle))
+        angle_eps_rad = 1e-5
+        distance_eps_m = 1e-5
         
-        poses_turn = np.empty((N, 3))
-        poses_turn[:, 2] = angle_wrap(theta0 + angles, mode='0:2pi')
-        poses_turn[:, :2] = self.pose[:2]
+        # Determine poses while turning to the desired angle
+        if abs(angle) < angle_eps_rad:
+            poses_turn = np.empty((0, 3))
+        else:
+            T = abs(angle) / abs(self._omega)
+            N = int(np.ceil(T / self._dt))
+            t = np.linspace(self._dt, N * self._dt, N)
+            angles = np.sign(angle) * np.minimum(abs(self._omega) * t, abs(angle))
+            
+            poses_turn = np.empty((N, 3))
+            poses_turn[:, 2] = angle_wrap(theta0 + angles, mode='0:2pi')
+            poses_turn[:, :2] = self.pose[:2]
     
         # Determine poses while moving straight
-        ray = np.array([
-            np.cos(theta0 + angle),
-            np.sin(theta0 + angle)
-        ])
-        
-        T = distance / self._v
-        N = int(np.ceil(T / self._dt))
-        t = np.linspace(self._dt, N * self._dt, N)
-        ds = np.minimum(self._v * t, distance)
-        
-        poses_straight = np.empty((N, 3))
-        poses_straight[:, 2] = angle_wrap(theta0 + angle, mode='0:2pi')
-        poses_straight[:, :2] = self.pose[:2] + ray * ds[:, None]
-        
+        if abs(distance) < distance_eps_m:
+            poses_straight = np.empty((0, 3))
+        else:
+            ray = np.array([
+                np.cos(theta0 + angle),
+                np.sin(theta0 + angle)
+            ])
+            
+            T = distance / self._v
+            N = int(np.ceil(T / self._dt))
+            t = np.linspace(self._dt, N * self._dt, N)
+            ds = np.minimum(self._v * t, distance)
+            
+            poses_straight = np.empty((N, 3))
+            poses_straight[:, 2] = angle_wrap(theta0 + angle, mode='0:2pi')
+            poses_straight[:, :2] = self.pose[:2] + ray * ds[:, None]
+            
         # Combine the two segments
         poses = np.vstack((poses_turn, poses_straight))
         

@@ -96,7 +96,7 @@ class ArrayMap:
         self.height_px, self.width_px = self._walls.shape
         self.height_m, self.width_m = self.height_px * self.resolution, self.width_px * self.resolution
         
-        self._indxer = ArrayIndexer(1.0, self.height_px, self.width_px) # TODO: add resolution to this
+        self._indexer = ArrayIndexer(1.0, self.height_px, self.width_px) # TODO: add resolution to this
         
         if verbose:
             print(f"Walls shape: {self._walls.shape}, Free space shape: {self._free_space.shape}")
@@ -146,7 +146,7 @@ class ArrayMap:
 
         def create_cube(coord_ij):
             i, j = coord_ij
-            x, y = self._indxer.ij_to_xy_m(np.array([i, j]))
+            x, y = self._indexer.ij_to_xy_m(np.array([i, j]))
 
             # Start with full-size cube
             scale_x = cube_size
@@ -198,8 +198,8 @@ class ArrayMap:
         free_space_point_ij = self._free_space_indices_ij[index]
         
         if output_type == 'ij': return free_space_point_ij
-        if output_type == 'xy_m': return self._indxer.ij_to_xy_m(free_space_point_ij)
-        if output_type == 'xy_r': return self._indxer.ij_to_xy_r(free_space_point_ij)
+        if output_type == 'xy_m': return self._indexer.ij_to_xy_m(free_space_point_ij)
+        if output_type == 'xy_r': return self._indexer.ij_to_xy_r(free_space_point_ij)
     
     def max_travel_distance_along_ray(self, position: NDArray, angle_W: NDArray) -> float:
         """

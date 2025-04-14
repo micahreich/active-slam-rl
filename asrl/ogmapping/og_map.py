@@ -134,8 +134,8 @@ class OccupancyGridMapper:
         self.l_free = np.log(p_miss / (1 - p_miss))  # Log-odds for free cell
         self.l_unknown = np.log(0.5 / (1 - 0.5))  # Log-odds for unknown cell
         
-        self.l_occ_max = np.log(0.999 / (1 - 0.999))  # Log-odds for max occupied cell
-        self.l_free_min = np.log(0.001 / (1 - 0.001))  # Log-odds for max free cell
+        self.l_occ_max = np.log(0.99 / (1 - 0.99))  # Log-odds for max occupied cell
+        self.l_free_min = np.log(0.01 / (1 - 0.01))  # Log-odds for max free cell
         
         self.resolution = resolution
         
@@ -194,7 +194,9 @@ class OccupancyGridMapper:
         Returns:
             NDArray: Probability values.
         """
-        return 1.0 / (1.0 + np.exp(-self.grid))
+        clipped_grid = np.clip(self.grid, self.l_free_min, self.l_occ_max)
+        expl = np.exp(clipped_grid)
+        return expl / (1.0 + expl)  # Convert log-odds to probability
     
     def process_scan(self, pose: NDArray, scan_points_b_B: NDArray) -> None:
         """
@@ -251,9 +253,6 @@ class OccupancyGridMapper:
         # Also mark robot's cell as free
         pose_ij = self._indexer.xy_r_to_ij(pose_xy_r)
         self.grid[pose_ij[0], pose_ij[1]] += self.l_free
-
-        # Clip log-odds
-        self.grid = np.clip(self.grid, self.l_free_min, self.l_occ_max)
 
 
 if __name__ == "__main__":

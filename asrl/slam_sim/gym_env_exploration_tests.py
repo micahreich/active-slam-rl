@@ -52,7 +52,6 @@ if __name__ == "__main__":
                     obs, info = env.reset()
                     
             env.render()
-            time.sleep(1.0 / 10.0)
     except KeyboardInterrupt:
         print("\nExiting.")
     finally:
