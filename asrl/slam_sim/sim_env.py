@@ -1,3 +1,4 @@
+import os
 from typing import Tuple
 import numpy as np
 from numpy.typing import NDArray
@@ -6,6 +7,7 @@ import matplotlib.pyplot as plt
 
 from asrl.ogmapping.og_map import OccupancyGridMapper
 from asrl.slam_sim.array_map import ArrayMap
+from asrl.slam_sim import MAPS_DIRECTORY
 
 
 class SimulationEnvironment:
@@ -24,7 +26,10 @@ class SimulationEnvironment:
         self._travel_cut_short_dist_m = travel_cut_short_dist_m
         self.timesteps_elapsed = 0
         
-        self.array_map = ArrayMap(map_name)        
+        map_name, _ = os.path.splitext(map_name)
+        map_fpath = os.path.join(MAPS_DIRECTORY, f"{map_name}.txt")
+        
+        self.array_map = ArrayMap(map_fpath)        
         self.og_map = OccupancyGridMapper(og_map_resolution,
                                           width_m=self.array_map.width_m,
                                           height_m=self.array_map.width_m,
@@ -38,21 +43,23 @@ class SimulationEnvironment:
         """
         return self.timesteps_elapsed * self._dt
     
-    def reset(self) -> Tuple[NDArray, NDArray]:
+    def reset(self, pose=None) -> Tuple[NDArray, NDArray]:
         """
         Reset the simulation environment to a random pose in free space and reset the occupancy grid map.
         """
         self.timesteps_elapsed = 0
         
-        pose = np.empty((3,))
-        pose[:2] = self.array_map.sample_free_space(output_type='xy_m')
-        pose[2] = np.random.uniform(0, 2 * np.pi)
+        if pose is None:
+            pose = np.zeros((3,))
+            pose[:2] = self.array_map.sample_free_space(output_type='xy_m')
+            pose[2] = 0.0 #np.random.uniform(0, 2 * np.pi)
         
         self.pose = pose
         self.og_map.reset()
         
         # Perform a raycast to update the occupancy grid map just with the initial pose
-        self.og_map.process_scan(self.array_map.raycast_in_map([self.pose]))
+        initial_scan = self.array_map.raycast_in_map(self.pose)
+        self.og_map.process_scan(self.pose, initial_scan)
         
         return self.get_observation()
     
@@ -101,8 +108,8 @@ class SimulationEnvironment:
         scans = self.array_map.raycast_in_map(traveled_poses)
         timesteps_elapsed = len(traveled_poses)
         
-        for scan in scans:
-            self.og_map.update(scan)
+        for pose, scan in zip(traveled_poses, scans):
+            self.og_map.process_scan(pose, scan)
         
         self.pose = traveled_poses[-1]
         self.timesteps_elapsed += timesteps_elapsed

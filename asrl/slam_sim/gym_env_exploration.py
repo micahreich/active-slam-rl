@@ -1,3 +1,4 @@
+import os
 from time import time
 import gymnasium as gym
 from gymnasium import spaces
@@ -16,7 +17,8 @@ class GymExploreEnv(gym.Env):
     def __init__(self,
                  episode_maxlen_s=60 * 5,
                  percentage_of_map_to_explore=0.90,
-                 map_name="floorplan1"):
+                 map_name="floorplan1",
+                 render_mode=None):
         super().__init__()
         
         self.episode_maxlen_s = episode_maxlen_s
@@ -53,6 +55,9 @@ class GymExploreEnv(gym.Env):
         
         self.prev_free_area = 0
         self.timesteps_elapsed = 0
+        self.render_mode = render_mode
+        
+        self.fig = None
     
     def _to_gym_observation(self, obs):
         """
@@ -64,11 +69,13 @@ class GymExploreEnv(gym.Env):
             "grid": grid
         }
     
-    def reset(self, seed=None, options=None):
+    def reset(self, seed=None, options={'pose': None}):
+        super().reset(seed=seed)
+        
         self.prev_free_area = 0
         self.timesteps_elapsed = 0
         
-        obs = self.simulator.reset()
+        obs = self.simulator.reset(options['pose'])
         info = {}
         
         return self._to_gym_observation(obs), info
@@ -92,29 +99,32 @@ class GymExploreEnv(gym.Env):
         if self.render_mode != "human":
             return
         
+        prob_map = self.simulator.og_map.to_prob_map()
+        height = self.simulator.og_map.height_px
+        width = self.simulator.og_map.width_px
+        res = self.simulator.og_map.resolution
+        extent = [0, width * res, 0, height * res]
+        
         if self.fig is None:
             plt.ion()
             self.fig, self.ax = plt.subplots()
             
-            extent = [0, self.simulator.og_map.width_px * self.simulator.og_map.resolution, \
-                      0, self.simulator.og_map.height_px * self.simulator.og_map.resolution]
+            self.im = self.ax.imshow(prob_map, vmin=0, vmax=1, cmap='gray_r',
+                                 interpolation='nearest', origin='upper', extent=extent)
 
-            self.im = self.ax.imshow(self.simulator.og_map.to_prob_map(),
-                                     vmin=0, vmax=1,
-                                     cmap='gray_r', interpolation='nearest',
-                                     origin='upper', extent=extent)
             self.pose_circle = plt.Circle((0, 0), radius=1.0, edgecolor='black', facecolor='none')
             self.pose_line, = self.ax.plot([], [], color='black')
             self.ax.add_patch(self.pose_circle)
             self.ax.set_aspect('equal')
-            
             self.ax.set_title("Occupancy Grid")
         else:
-            self.im.set_data(self.simulator.og_map.to_prob_map())
+            self.im.set_data(prob_map)
+            
+        print(f"{prob_map.shape=}, {prob_map.dtype=}")
         
         # Update pose drawing
         x, y, theta = self.simulator.pose
-        scale = 2.0
+        scale = 1.0
         self.pose_circle.center = (x, y)
         self.pose_circle.radius = scale * 0.5
         self.pose_line.set_data(
@@ -122,9 +132,17 @@ class GymExploreEnv(gym.Env):
             [y, y + scale * 0.5 * np.sin(theta)]
         )
 
-        self.ax.set_xlim(0, self.grid.shape[1])
-        self.ax.set_ylim(0, self.grid.shape[0])
-        
+        self.ax.set_xlim(0, width * res)
+        self.ax.set_ylim(0, height * res)
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-        time.sleep(1 / self.metadata["render_fps"])
+    
+    def close(self):
+        if hasattr(self, 'fig') and self.fig is not None:
+            plt.ioff()
+            plt.close(self.fig)
+            self.fig = None
+            self.ax = None
+            self.im = None
+            self.pose_circle = None
+            self.pose_line = None

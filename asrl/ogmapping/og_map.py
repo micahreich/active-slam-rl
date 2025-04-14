@@ -41,18 +41,20 @@ class ArrayIndexer:
         return (0 <= xy[:, 0]) & (xy[:, 0] < self.width_px) & (0 <= xy[:, 1]) & (xy[:, 1] < self.height_px)
     
     def xy_r_to_ij(self, xy: NDArray) -> NDArray:
-        # Convert (x, y) coordinates in the map's resolution to row-column (i, j) indices into the map
         squeeze_back = len(xy.shape) == 1
         if squeeze_back:
             xy = xy[np.newaxis, :]
-            
-        ij = np.zeros_like(xy, dtype=np.int32)
-        ij[:, 0] = self.height_px - xy[:, 1] - 1
-        ij[:, 1] = xy[:, 0]
         
+        # Floor to get discrete cell indices
+        xy_floor = np.floor(xy).astype(np.int32)
+
+        ij = np.zeros_like(xy_floor)
+        ij[:, 0] = self.height_px - xy_floor[:, 1] - 1  # i = row (top = 0)
+        ij[:, 1] = xy_floor[:, 0]                       # j = col
+
         if squeeze_back:
             return np.squeeze(ij)
-        
+
         return ij
     
     def xy_m_to_xy_r(self, xy: NDArray) -> NDArray:
@@ -61,9 +63,9 @@ class ArrayIndexer:
         if squeeze_back:
             xy = xy[np.newaxis, :]
         
-        xy_r = np.zeros_like(xy, dtype=np.int32)
-        xy_r[:, 0] = np.floor(xy[:, 0] / self.resolution).astype(np.int32)
-        xy_r[:, 1] = np.floor(xy[:, 1] / self.resolution).astype(np.int32)
+        xy_r = np.zeros_like(xy, dtype=np.float32)
+        xy_r[:, 0] = xy[:, 0] / self.resolution
+        xy_r[:, 1] = xy[:, 1] / self.resolution
         
         if squeeze_back:
             return np.squeeze(xy_r)
@@ -76,9 +78,11 @@ class ArrayIndexer:
         if squeeze_back:
             xy = xy[np.newaxis, :]
         
-        ij = np.zeros_like(xy, dtype=np.int32)
-        ij[:, 0] = self.height_px - np.floor(xy[:, 1] / self.resolution).astype(np.int32) - 1
-        ij[:, 1] = np.floor(xy[:, 0] / self.resolution).astype(np.int32)
+        xy_r_floored = np.floor(xy / self.resolution).astype(np.int32)
+        
+        ij = np.zeros_like(xy_r_floored)
+        ij[:, 0] = self.height_px - xy_r_floored[:, 1] - 1
+        ij[:, 1] = xy_r_floored[:, 0]
         
         if squeeze_back:
             return np.squeeze(ij)
@@ -107,8 +111,8 @@ class ArrayIndexer:
             ij = ij[np.newaxis, :]
         
         xy_r = np.zeros_like(ij, dtype=np.float32)
-        xy_r[:, 0] = ij[:, 1]
-        xy_r[:, 1] = self.height_px - ij[:, 0] - 1
+        xy_r[:, 0] = ij[:, 1] + 0.5
+        xy_r[:, 1] = self.height_px - ij[:, 0] - 1 + 0.5
         
         if squeeze_back:
             return np.squeeze(xy_r)
@@ -123,23 +127,29 @@ class OccupancyGridMapper:
                  height_m: float,
                  p_hit: float = 0.9,
                  p_miss: float = 0.1,
-                 max_height_px=512,
-                 max_width_px=512) -> None:
+                 max_height_px=None,
+                 max_width_px=None) -> None:
         # Resolution refers to the size of each cell in the grid [m]        
         self.l_occ = np.log(p_hit / (1 - p_hit))  # Log-odds for occupied cell
         self.l_free = np.log(p_miss / (1 - p_miss))  # Log-odds for free cell
         self.l_unknown = np.log(0.5 / (1 - 0.5))  # Log-odds for unknown cell
         
-        self.l_occ_max = np.log(0.99 / (1 - 0.99))  # Log-odds for max occupied cell
-        self.l_free_min = np.log(0.01 / (1 - 0.01))  # Log-odds for max free cell
+        self.l_occ_max = np.log(0.999 / (1 - 0.999))  # Log-odds for max occupied cell
+        self.l_free_min = np.log(0.001 / (1 - 0.001))  # Log-odds for max free cell
         
         self.resolution = resolution
         
         height_px, width_px = self.compute_map_size(resolution, height_m, width_m)
-        assert max_height_px >= height_px and max_width_px >= width_px, \
-            f"Map size ({height_px, width_px}) with resolution {resolution} exceeds the maximum size: {max_height_px, max_width_px}"
-        self.height_px = max_height_px
-        self.width_px = max_width_px
+        
+        if max_height_px and max_width_px:
+            assert max_height_px >= height_px and max_width_px >= width_px, \
+                f"Map size ({height_px, width_px}) with resolution {resolution} exceeds the maximum size: {max_height_px, max_width_px}"
+            self.height_px = max_height_px
+            self.width_px = max_width_px
+        else:
+            self.height_px = height_px
+            self.width_px = width_px
+        
         self.height_m = self.height_px * self.resolution
         self.width_m = self.width_px * self.resolution
         
@@ -192,49 +202,57 @@ class OccupancyGridMapper:
         
         Args:
             pose (NDArray): The robot's pose (x, y, theta).
-            scan_points (NDArray): The (x, y) points from the laser scan.
+            scan_points_b_B (NDArray): The (x, y) points from the laser scan in body frame.
         """
+        # Rotate scan points into world frame
         W_R_B = spatialmath.base.rot2(pose[2])
+        scan_points_w_W = scan_points_b_B @ W_R_B.T + pose[:2]  # shape (N, 2)
         
-        scan_points_b_W = scan_points_b_B @ W_R_B.T
-        
-        scan_points_xy_r_b_W = self._indexer.xy_m_to_xy_r(scan_points_b_W)
-        origin = np.zeros_like(scan_points_xy_r_b_W)
-        
-        rays_xy_r, max_iter = bresenhamline(origin, scan_points_xy_r_b_W, max_iter=-1)
-        rays_xy_r = rays_xy_r.reshape((-1, max_iter, 2))
-
-        # Bresenham computes max_iter points along the line for each scan point,
-        # but some of these will go beyond the scan point
-        ray_dists = np.linalg.norm(rays_xy_r, axis=-1)
-        scan_dists = np.linalg.norm(scan_points_xy_r_b_W, axis=-1)[:, np.newaxis]
-        
-        mask_pre = (ray_dists < scan_dists).flatten()
-        mask_hit = (np.isclose(ray_dists, scan_dists, atol=1e-6)).flatten()
-
+        # Convert start and end points of each ray to map-relative coordinates
+        scan_points_xy_r = self._indexer.xy_m_to_xy_r(scan_points_w_W)
         pose_xy_r = self._indexer.xy_m_to_xy_r(pose[:2])
-        pose_xy_i, pose_xy_j = self._indexer.xy_r_to_ij(pose_xy_r)
         
-        rays_xy_r = rays_xy_r.reshape((-1, 2))
-        cell_xy_r_free = rays_xy_r[mask_pre] + pose_xy_r
-        cell_xy_r_hit = rays_xy_r[mask_hit] + pose_xy_r
-        
+        scan_points_xy_r_floored = np.floor(scan_points_xy_r).astype(np.int32)
+        pose_xy_r_floored = np.floor(pose_xy_r).astype(np.int32)
+
+        # Now cast rays from robot position to each scan endpoint
+        # First floor the start and end points to get the grid indices
+        _start_points = pose_xy_r_floored[None, :] * np.ones_like(scan_points_xy_r_floored)
+        out = bresenhamline(_start_points, scan_points_xy_r_floored, max_iter=-1)
+
+        rays_xy_r_floored, max_iter = out
+        rays_xy_r_floored = rays_xy_r_floored.reshape((-1, max_iter, 2))
+
+        # Compute distances along the ray        
+        ray_dists = np.linalg.norm(rays_xy_r_floored - pose_xy_r_floored, ord=1, axis=-1)
+        scan_dists = np.linalg.norm(scan_points_xy_r_floored - pose_xy_r_floored, ord=1, axis=-1)[:, np.newaxis]
+
+        # Identify pre-hit and hit cells
+        mask_pre = (ray_dists < scan_dists).flatten()
+        mask_hit = (ray_dists == scan_dists).flatten()
+
+        rays_xy_r_floored = rays_xy_r_floored.reshape((-1, 2))
+        cell_xy_r_free = rays_xy_r_floored[mask_pre]
+        cell_xy_r_hit = rays_xy_r_floored[mask_hit]
+
+        # Filter out-of-bounds
         mask_in_bounds_free = self._indexer.xy_r_in_bounds(cell_xy_r_free)
         mask_in_bounds_hit = self._indexer.xy_r_in_bounds(cell_xy_r_hit)
-        
         cell_xy_r_free = cell_xy_r_free[mask_in_bounds_free]
         cell_xy_r_hit = cell_xy_r_hit[mask_in_bounds_hit]
-        
-        # Then convert to (i, j) indices to index into grid
+
+        # Convert to integer grid indices
         grid_ij_free = self._indexer.xy_r_to_ij(cell_xy_r_free)
         grid_ij_hit = self._indexer.xy_r_to_ij(cell_xy_r_hit)
-        
+
         fast_add_at(self.grid, grid_ij_free, self.l_free)
         fast_add_at(self.grid, grid_ij_hit, self.l_occ)
-      
-        self.grid[pose_xy_i, pose_xy_j] += self.l_free
-        
-        # Clip the log-odds values to avoid under/overflow
+
+        # Also mark robot's cell as free
+        pose_ij = self._indexer.xy_r_to_ij(pose_xy_r)
+        self.grid[pose_ij[0], pose_ij[1]] += self.l_free
+
+        # Clip log-odds
         self.grid = np.clip(self.grid, self.l_free_min, self.l_occ_max)
 
 

@@ -1,0 +1,1 @@
+MAPS_DIRECTORY = '/home/dev/workspace/asrl/maps'

@@ -110,8 +110,7 @@ def bresenhamline(start, end, max_iter=5):
     out, max_iter = _bresenhamlines(start, end, max_iter)
     return out.reshape(-1, start.shape[-1]), max_iter
 
-
-if __name__ == "__main__":
+def test1():
     angles = np.deg2rad(np.arange(0, 360, 45))
     end_points = np.rint(np.column_stack([
         5.0 * np.cos(angles),
@@ -173,6 +172,39 @@ if __name__ == "__main__":
     # log_odds_update = np.ones(max_iter, dtype=np.float32) * self.l_free
     print(scanline_intervals_indices)
     print(bresenham_points[scanline_intervals_indices])
+
+def test2():
+    n_pts = 11
+    points_on_wall = np.column_stack([
+        np.arange(0, n_pts) -n_pts//2,
+        np.ones(n_pts)
+    ])
+    
+    start_points = np.zeros_like(points_on_wall)
+    
+    bresenham_points, max_iter = bresenhamline(start_points, points_on_wall, max_iter=-1)
+    
+    print("Start points:")
+    print(start_points)
+    print("End points:")
+    print(points_on_wall)
+    print("Bresenham points:")
+    print(bresenham_points)
+
+
+if __name__ == "__main__":
+    # test1()
+    # test2()
+    
+    starts = np.array([[0, 0]])
+    ends = np.array([[2, 2]])
+    bresenham_points, max_iter = bresenhamline(starts, ends, max_iter=-1)
+    print("Start points:")
+    print(starts)
+    print("End points:")
+    print(ends)
+    print("Bresenham points:")
+    print(bresenham_points)
     
     
     # distances = np.linalg.norm(bresenham_points, axis=-1)

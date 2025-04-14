@@ -68,6 +68,7 @@ class ArrayMap:
         resolution : float, optional
             The scale of the map in meters, by default 1.0. The size of each cell in the input grid in meters.
         """
+        
         if os.path.isfile(arr):
             with open(arr, 'r') as f:
                 lines = f.readlines()
@@ -124,19 +125,70 @@ class ArrayMap:
 
         return grid
 
-    def _to_o3d_geometry(self, walls: NDArray):        
-        def create_cube(xy_coord):
-            x, y = xy_coord - 0.5
-            cube = o3d.geometry.TriangleMesh.create_box(1, 1, 1)
+    # def _to_o3d_geometry(self, walls: NDArray):        
+    #     def create_cube(xy_coord):
+    #         x, y = xy_coord - 0.5
+    #         cube = o3d.geometry.TriangleMesh.create_box(1, 1, 1)
             
+    #         cube.compute_vertex_normals()
+    #         cube.translate([x, y, 0])
+    #         cube.paint_uniform_color([1, 0, 0])
+    #         return cube
+        
+    #     wall_point_xy_m = self._indxer.ij_to_xy_m(np.argwhere(walls == 1))
+    #     cube_geometries = list(map(create_cube, wall_point_xy_m))
+        
+    #     return cube_geometries
+    
+    def _to_o3d_geometry(self, walls: NDArray):
+        inset = 0.05
+        cube_size = 1.0
+
+        def create_cube(coord_ij):
+            i, j = coord_ij
+            x, y = self._indxer.ij_to_xy_m(np.array([i, j]))
+
+            # Start with full-size cube
+            scale_x = cube_size
+            scale_y = cube_size
+            offset_x = 0.0
+            offset_y = 0.0
+
+            # Offsets for each direction
+            neighbors = {
+                'N': (i - 1, j),
+                'S': (i + 1, j),
+                'W': (i, j - 1),
+                'E': (i, j + 1),
+            }
+
+            for direction, (ni, nj) in neighbors.items():
+                if 0 <= ni < self.height_px and 0 <= nj < self.width_px:
+                    if self._free_space[ni, nj]:  # wall faces free space
+                        if direction == 'W':
+                            offset_x += inset / 2
+                            scale_x -= inset
+                        elif direction == 'E':
+                            offset_x -= inset / 2
+                            scale_x -= inset
+                        elif direction == 'S':
+                            offset_y += inset / 2
+                            scale_y -= inset
+                        elif direction == 'N':
+                            offset_y -= inset / 2
+                            scale_y -= inset
+                            
+            # Construct cube with adjusted size and position
+            cube = o3d.geometry.TriangleMesh.create_box(width=scale_x, height=scale_y, depth=1.0)
             cube.compute_vertex_normals()
-            cube.translate([x, y, 0])
+
+            # Translate cube to the right place in meters
+            cube.translate([x - scale_x / 2 + offset_x, y - scale_y / 2 + offset_y, 0])
             cube.paint_uniform_color([1, 0, 0])
             return cube
-        
-        wall_point_xy_m = self._indxer.ij_to_xy_m(np.argwhere(walls == 1))
-        cube_geometries = list(map(create_cube, wall_point_xy_m))
-        
+
+        wall_indices_ij = np.argwhere(walls == 1)
+        cube_geometries = list(map(create_cube, wall_indices_ij))
         return cube_geometries
     
     def sample_free_space(self, output_type='xy_m'):
@@ -180,7 +232,7 @@ class ArrayMap:
                        r_max_m: float = np.inf,
                        angle_range_deg: float = [-180, 180],
                        horizontal_resolution_deg: float = 2.0,
-                       range_noise_std_m: float = 0.0254):
+                       range_noise_m: float = 0.01):
         is_batched = poses.ndim == 2
         if not is_batched:
             poses = poses[None, :]
@@ -202,7 +254,10 @@ class ArrayMap:
         # Perform raycasting
         out = self._raycasting_scene.cast_rays(raycast_vectors)
         t_hit = out['t_hit'].numpy()
-        t_hit += np.random.normal(0, range_noise_std_m, size=t_hit.shape)
+        
+        sigma = range_noise_m + 0.001 * t_hit  # base noise + 1mm per meter
+        noise = np.random.normal(loc=0.0, scale=sigma)
+        t_hit += noise
         
         # Rotate points into body frame
         B_R_W_array = np.array([spatialmath.base.rot2(pose[2]).T for pose in poses])
@@ -215,7 +270,7 @@ class ArrayMap:
         ]
         
         if not is_batched:
-            return  result[0]
+            return result[0]
 
         return result
     
@@ -224,11 +279,17 @@ if __name__ == "__main__":
     m = ArrayMap('/home/dev/workspace/asrl/maps/floorplan1.txt', resolution=1)
     
     coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
-    o3d.visualization.draw_geometries(m._wall_o3d_geometries + [coordinate_frame])
+    grid = create_grid_xy(
+        x_range=(0, m.width_px),
+        y_range=(0, m.height_px),
+        step=1.0
+    )
+    o3d.visualization.draw_geometries(m._wall_o3d_geometries + [coordinate_frame, grid])
     
-    pose = np.array([1.5, 6.5, np.deg2rad(10)])
+    pose = np.array([0.5 + 1.5, 0.5 + 2.5, np.deg2rad(10)])
     points = m.raycast_in_map(
         pose,
+        range_noise_std_m=0.
     )
     
     fig, ax = plt.subplots(1,1, figsize=(8, 8))
