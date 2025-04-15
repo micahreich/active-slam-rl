@@ -8,16 +8,19 @@ import numpy as np
 from asrl.slam_sim.sim_env import SimulationEnvironment
 
 
-MAP_SIZE_PX = (220, 220)  # Size of the occupancy grid map image in pixels
-
-
 class GymExploreEnv(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 5}
     
     def __init__(self,
-                 episode_maxlen_s=60 * 5,
-                 percentage_of_map_to_explore=0.90,
-                 map_name="floorplan1",
+                 episode_maxlen_s,
+                 percentage_of_map_to_explore,
+                 map_name,
+                 og_map_resolution,
+                 omega,
+                 v,
+                 dt,
+                 travel_cut_short_dist_m,
+                 og_map_shape,
                  render_mode=None):
         super().__init__()
         
@@ -27,11 +30,11 @@ class GymExploreEnv(gym.Env):
         # Define observation space; positions are normalized to [0, 1] by dividing by the occupancy grid map size
         # and the angle is normalized to [0, 1] by dividing by 2 * pi
         self.observation_space = spaces.Dict({
+            "og_map": spaces.Box(
+                low=0.0, high=1.0, shape=og_map_shape, dtype=np.float32
+            ),
             "pose": spaces.Box(
                 low=0.0, high=1.0, shape=(3,), dtype=np.float32
-            ),
-            "grid": spaces.Box(
-                low=0.0, high=1.0, shape=(MAP_SIZE_PX[0], MAP_SIZE_PX[1], 1), dtype=np.float32
             ),
         })
 
@@ -39,18 +42,18 @@ class GymExploreEnv(gym.Env):
         # limited to [0, 100]m
         self.action_space = spaces.Box(
             low=np.array([-np.pi, 0.0], dtype=np.float32),
-            high=np.array([np.pi, 1e2], dtype=np.float32),
+            high=np.array([np.pi, 20.0], dtype=np.float32),
             dtype=np.float32
         )
         
         self.simulator = SimulationEnvironment(
-            map_name=map_name,
-            og_map_resolution = 0.1,
-            omega = 1.0,
-            v = 1.0,
-            dt = 0.1,
-            travel_cut_short_dist_m = 0.1,
-            map_image_size_px = MAP_SIZE_PX
+            map_name,
+            og_map_resolution,
+            omega,
+            v,
+            dt,
+            travel_cut_short_dist_m,
+            og_map_shape
         )
         
         self.prev_free_area = 0
@@ -63,10 +66,10 @@ class GymExploreEnv(gym.Env):
         """
         Convert the observation from the simulator to the gym format.
         """
-        pose, grid = obs
+        grid, pose = obs
         return {
-            "pose": pose,
-            "grid": grid
+            "og_map": grid,
+            "pose": pose
         }
     
     def reset(self, seed=None, options={'pose': None}):
@@ -81,7 +84,7 @@ class GymExploreEnv(gym.Env):
         return self._to_gym_observation(obs), info
     
     def step(self, action):
-        obs, _ = self.simulator.step(action)
+        obs, _, dist_from_wall = self.simulator.step(action)
         free_area = self.simulator.og_map.free_area_m2
         
         delta_area = free_area - self.prev_free_area
@@ -89,7 +92,7 @@ class GymExploreEnv(gym.Env):
         
         self.prev_free_area = free_area
         
-        reward = delta_area / map_area
+        reward = max(0.0, delta_area / map_area) + 1e-4 * dist_from_wall
         done = free_area / map_area > self.percentage_of_map_to_explore
         truncated = self.simulator.time_elapsed >= self.episode_maxlen_s
         
@@ -99,17 +102,20 @@ class GymExploreEnv(gym.Env):
         if self.render_mode != "human":
             return
         
-        prob_map = self.simulator.og_map.to_prob_map()
+        normalized_pose, prob_map = self.simulator.get_observation()
+        pose = normalized_pose * np.array([self.simulator.og_map.width_m,
+                                           self.simulator.og_map.height_m,
+                                           2*np.pi])
+        
         height = self.simulator.og_map.height_px
         width = self.simulator.og_map.width_px
         res = self.simulator.og_map.resolution
         extent = [0, width * res, 0, height * res]
         
         if self.fig is None:
-            plt.ion()
             self.fig, self.ax = plt.subplots()
             
-            self.im = self.ax.imshow(prob_map, vmin=0, vmax=1, cmap='gray_r',
+            self.im = self.ax.imshow(prob_map[0], vmin=0, vmax=255, cmap='gray_r',
                                  interpolation='nearest', origin='upper', extent=extent)
 
             self.pose_circle = plt.Circle((0, 0), radius=1.0, edgecolor='black', facecolor='none')
@@ -118,12 +124,12 @@ class GymExploreEnv(gym.Env):
             self.ax.set_aspect('equal')
             self.ax.set_title("Occupancy Grid")
         else:
-            self.im.set_data(prob_map)
+            self.im.set_data(prob_map[0])
             
         print(f"{prob_map.shape=}, {prob_map.dtype=}")
         
         # Update pose drawing
-        x, y, theta = self.simulator.pose
+        x, y, theta = pose
         scale = 1.0
         self.pose_circle.center = (x, y)
         self.pose_circle.radius = scale * 0.5
@@ -139,10 +145,24 @@ class GymExploreEnv(gym.Env):
     
     def close(self):
         if hasattr(self, 'fig') and self.fig is not None:
-            plt.ioff()
             plt.close(self.fig)
             self.fig = None
             self.ax = None
             self.im = None
             self.pose_circle = None
             self.pose_line = None
+    
+    @staticmethod
+    def from_dict(cfg):
+        return GymExploreEnv(
+            episode_maxlen_s=cfg['episode_maxlen_s'],
+            percentage_of_map_to_explore=cfg['percentage_of_map_to_explore'],
+            map_name=cfg['map_name'],
+            og_map_resolution=cfg['og_map_resolution'],
+            omega=cfg['omega'],
+            v=cfg['v'],
+            dt=cfg['dt'],
+            travel_cut_short_dist_m=cfg['travel_cut_short_dist_m'],
+            og_map_shape=cfg['og_map_shape'],
+            render_mode=cfg.get('render_mode', None)
+        )

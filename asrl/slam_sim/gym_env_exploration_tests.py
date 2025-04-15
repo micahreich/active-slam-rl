@@ -6,6 +6,7 @@ import termios
 import tty
 import select
 import time
+import gymnasium as gym
 
 
 def get_key(timeout=0.1):
@@ -27,8 +28,22 @@ if __name__ == "__main__":
         episode_maxlen_s=60 * 5,
         percentage_of_map_to_explore=0.90,
         map_name="floorplan1",
+        og_map_resolution=0.2,
+        omega=1.0,
+        v=1.0,
+        dt=0.1,
+        travel_cut_short_dist_m=0.1,
+        og_map_shape=(1, 128, 128),
         render_mode="human",
     )
+    
+    # print(env.observation_space["og_map"].shape)
+    # print(isinstance(env.observation_space, gym.spaces.Dict))
+    
+    # for x in env.observation_space:
+    #     print(x)
+        
+    # print(env.action_space.sample())
     
     # Reset the environment
     obs, info = env.reset()
@@ -41,15 +56,20 @@ if __name__ == "__main__":
         'w': np.array([0, d]),
     }
     
+    cumulative_reward = 0.0
+    
     try:
         while True:
             key = input("")
             if key in key_to_action:
                 action = key_to_action[key]
                 obs, reward, terminated, truncated, info = env.step(action)
-                
+                cumulative_reward += reward
+                print(f"Reward: {reward}, Cumulative Reward: {cumulative_reward}")
+                                
                 if terminated or truncated:
                     obs, info = env.reset()
+                    cumulative_reward = 0.0
                     
             env.render()
     except KeyboardInterrupt:
