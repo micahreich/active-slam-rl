@@ -229,6 +229,7 @@ class ArrayMap:
     
     def raycast_in_map(self,
                        poses: NDArray,
+                       r_min_m: float = 0.1,
                        r_max_m: float = np.inf,
                        angle_range_deg: float = [-180, 180],
                        horizontal_resolution_deg: float = 2.0,
@@ -264,7 +265,6 @@ class ArrayMap:
         points_b_W = np.reshape(t_hit[:, None] * raycast_vectors[:, 3:5], (B, n_rays, 2))
         points_b_B = points_b_W @ B_R_W_array.transpose(0, 2, 1)
         
-        r_min_m = 0.01
         mask_valid = np.reshape((r_min_m <= t_hit) & (t_hit <= r_max_m) & np.isfinite(t_hit), (B, n_rays))
         result = [
             points_b_B[i, ...][mask_valid[i]] for i in range(B)

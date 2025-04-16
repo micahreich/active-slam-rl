@@ -26,13 +26,19 @@ class QCritic(nn.Module):
             hidden_depth=hidden_depth,
             output_mod=None
         )
-        
-        self.apply(utils.weight_init)
-    
+            
     def forward(self, obs, action):
         og_map, pose = obs['og_map'], obs['pose']
         
+        assert not torch.any(torch.isnan(og_map)), "og_map contains NaN values"
+        assert not torch.any(torch.isnan(pose)), "pose contains NaN values"
+        assert not torch.any(torch.isinf(og_map)), "og_map contains Inf values"
+        assert not torch.any(torch.isinf(pose)), "pose contains Inf values"
+        
         encoded_map = self.encoder(og_map)
+        
+        assert not torch.any(torch.isnan(encoded_map)), "encoded_map has NaNs"
+
         encoded_obs_action = torch.cat([encoded_map, pose, action], dim=-1)
         q = self.net(encoded_obs_action)
 
@@ -98,3 +104,26 @@ class DoubleQCritic(nn.Module):
     #         if type(m1) is nn.Linear:
     #             logger.log_param(f'train_critic/q1_fc{i}', m1, step)
     #             logger.log_param(f'train_critic/q2_fc{i}', m2, step)
+
+if __name__ == "__main__":
+    critic = DoubleQCritic(
+        og_map_shape=[1, 128, 128],
+        pose_dim=3,
+        action_dim=2,
+        og_map_embedding_size=128,
+        encoder_channels=[32, 64, 64],
+        encoder_kernel_sizes=[8, 4, 4],
+        hidden_dim=128,
+        hidden_depth=2,
+    )
+    
+    print(critic)
+    
+    # Test the forward pass
+    dummy_obs = {
+        'og_map': torch.rand(1, 1, 128, 128),
+        'pose': torch.rand(1, 3),
+    }
+    dummy_action = torch.rand(1, 2)
+    
+    critic(dummy_obs, dummy_action)

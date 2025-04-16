@@ -25,31 +25,23 @@ def get_key(timeout=0.1):
 
 if __name__ == "__main__":
     env = GymExploreEnv(
-        episode_maxlen_steps=60 * 5,
+        episode_maxlen_steps=150,
         percentage_of_map_to_explore=0.95,
         map_name="box2",
         og_map_resolution=0.2,
         omega=1.0,
         v=1.0,
-        dt=0.1,
+        dt=0.2,
         travel_cut_short_dist_m=0.1,
         og_map_shape=(1, 128, 128),
         render_mode="human",
     )
     
-    # print(env.observation_space["og_map"].shape)
-    # print(isinstance(env.observation_space, gym.spaces.Dict))
-    
-    # for x in env.observation_space:
-    #     print(x)
-        
-    # print(env.action_space.sample())
-    
     # Reset the environment
     obs, info = env.reset()
     env.render()
     
-    d = 1.0
+    d = 2.0
     key_to_action = {
         'w': np.array([np.pi/2, d]),
         'a': np.array([np.pi, d]),
@@ -57,7 +49,8 @@ if __name__ == "__main__":
         'd': np.array([0.0, d]),
     }
     
-    cumulative_reward = 0.0
+    episode_reward = 0.0
+    episode = 1
     
     try:
         while True:
@@ -65,12 +58,15 @@ if __name__ == "__main__":
             if key in key_to_action:
                 action = key_to_action[key]
                 obs, reward, terminated, truncated, info = env.step(action)
-                cumulative_reward += reward
-                print(f"Reward: {reward}, Cumulative Reward: {cumulative_reward}")
-                                
+                episode_reward += reward
+                
+                print(f"{episode} - Reward: {reward}, Episode Reward: {episode_reward}")
+
                 if terminated or truncated:
+                    print(f"\tEpisode {episode} finished; terminated? {terminated}, truncated? {truncated}, envsteps: {env.simulator.envsteps_elapsed}")
                     obs, info = env.reset()
-                    cumulative_reward = 0.0
+                    episode_reward = 0.0
+                    episode += 1
                     
             env.render()
     except KeyboardInterrupt:

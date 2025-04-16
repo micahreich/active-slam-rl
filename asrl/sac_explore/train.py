@@ -111,6 +111,8 @@ class Workspace(object):
                 
     def train(self):
         episode, episode_reward, done = 0, 0, True
+        _ep_term, _ep_trunc = False, False
+        
         start_time = time.time()
         
         while self.step < self.cfg['train']['num_train_steps']:
@@ -120,7 +122,7 @@ class Workspace(object):
                                     time.time() - start_time, self.step)
                     start_time = time.time()
                     
-                    print(f'[Train] step: {self.step}, episode: {episode}, reward: {episode_reward}')
+                    print(f'[Train] step: {self.step}, episode: {episode}, reward: {episode_reward}, terminated? {_ep_term}, truncated: {_ep_trunc}')
                     self.episode_num += 1
 
                 # # evaluate agent periodically
@@ -147,10 +149,6 @@ class Workspace(object):
                 with utils.eval_mode(self.agent):
                     action = self.agent.act(obs, sample=True)
 
-            # run training update
-            if self.step >= self.cfg['train']['num_seed_steps']:
-                self.agent.update(self.replay_buffer, self.logger, self.step)
-
             next_obs, reward, terminations, truncations, infos = self.env.step(action)
             self.env.render()
 
@@ -159,8 +157,15 @@ class Workspace(object):
             episode_reward += reward
 
             self.replay_buffer.add(obs, action, reward, next_obs, done)
-
+            
             obs = next_obs
+            _ep_term = terminations
+            _ep_trunc = truncations
+            
+            # run training update
+            if self.step >= self.cfg['train']['num_seed_steps']:
+                self.agent.update(self.replay_buffer, self.logger, self.step)
+            
             episode_step += 1
             self.step += 1
 

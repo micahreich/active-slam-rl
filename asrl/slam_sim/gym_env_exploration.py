@@ -74,12 +74,11 @@ class GymExploreEnv(gym.Env):
     
     def reset(self, seed=None, options={'pose': None}):
         super().reset(seed=seed)
-        
-        self.prev_free_area = 0
-        self.timesteps_elapsed = 0
-        
         obs = self.simulator.reset(options['pose'])
         info = {}
+        
+        self.prev_free_area = 0.0
+        self.timesteps_elapsed = 0
         
         return self._to_gym_observation(obs), info
     
@@ -89,18 +88,18 @@ class GymExploreEnv(gym.Env):
         
         delta_area = free_area - self.prev_free_area
         map_area = self.simulator.array_map.free_area_m2
-        
-        self.prev_free_area = free_area
-        
+                
         coverage_reward = max(0.0, delta_area / map_area)
+        fast_reward = -1 #* self.simulator._dt * timesteps_elapsed
         # safety_reward = (np.abs(dist_from_env) * dist_from_env) / max(self.simulator.array_map.height_m,
         #                                                               self.simulator.array_map.width_m)
-        fast_reward = -1 #* self.simulator._dt * timesteps_elapsed
-        
-        reward = coverage_reward + 0.02 * fast_reward #0.01 * safety_reward
+    
+        reward = 10 * coverage_reward + 0.1 * fast_reward
         
         done = free_area / map_area > self.percentage_of_map_to_explore
         truncated = self.simulator.envsteps_elapsed >= self.episode_maxlen_steps
+        
+        self.prev_free_area = free_area
         
         return self._to_gym_observation(obs), reward, done, truncated, {}
     
@@ -145,6 +144,7 @@ class GymExploreEnv(gym.Env):
 
         self.ax.set_xlim(0, width * res)
         self.ax.set_ylim(0, height * res)
+        self.ax.grid(True)
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
     

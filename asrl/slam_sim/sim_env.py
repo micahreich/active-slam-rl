@@ -27,6 +27,8 @@ class SimulationEnvironment:
         self.timesteps_elapsed = 0
         self.envsteps_elapsed = 0
         
+        self.r_max_m = 8.0
+        
         map_name, _ = os.path.splitext(map_name)
         map_fpath = os.path.join(MAPS_DIRECTORY, f"{map_name}.txt")
         
@@ -51,17 +53,20 @@ class SimulationEnvironment:
         self.timesteps_elapsed = 0
         self.envsteps_elapsed = 0
         
-        if pose is None:
-            pose = np.zeros((3,))
-            pose[:2] = self.array_map.sample_free_space(output_type='xy_m')
-            # pose[2] = np.random.uniform(0, 2 * np.pi)
-            pose[2] = 0.0
+        # if pose is None:
+        #     pose = np.zeros((3,))
+        #     pose[:2] = self.array_map.sample_free_space(output_type='xy_m')
+        #     # pose[2] = np.random.uniform(0, 2 * np.pi)
+        #     pose[2] = 0.0
+        pose = np.array([2.0, 2.0, 0.0])
         
         self.pose = pose
         self.og_map.reset()
         
         # Perform a raycast to update the occupancy grid map just with the initial pose
-        initial_scan = self.array_map.raycast_in_map(self.pose)
+        initial_scan = self.array_map.raycast_in_map(self.pose,
+                                                     r_min_m=self.og_map.resolution,
+                                                     r_max_m=self.r_max_m)
         self.og_map.process_scan(self.pose, initial_scan)
         
         return self.get_observation()
@@ -150,7 +155,9 @@ class SimulationEnvironment:
         timesteps_elapsed = len(traveled_poses)
 
         if timesteps_elapsed > 0:
-            scans = self.array_map.raycast_in_map(traveled_poses, r_max_m=5.0)
+            scans = self.array_map.raycast_in_map(traveled_poses,
+                                                  r_min_m=self.og_map.resolution,
+                                                  r_max_m=self.r_max_m)
             timesteps_elapsed = len(traveled_poses)
             
             for pose, scan in zip(traveled_poses, scans):
@@ -179,19 +186,6 @@ class SimulationEnvironment:
         x0, y0, theta0 = self.pose
         
         distance_eps_m = 1e-5
-        
-        # # Determine poses while turning to the desired angle
-        # if abs(angle) < angle_eps_rad:
-        #     poses_turn = np.empty((0, 3))
-        # else:
-        #     T = abs(angle) / abs(self._omega)
-        #     N = int(np.ceil(T / self._dt))
-        #     t = np.linspace(self._dt, N * self._dt, N)
-        #     angles = np.sign(angle) * np.minimum(abs(self._omega) * t, abs(angle))
-            
-        #     poses_turn = np.empty((N, 3))
-        #     poses_turn[:, 2] = wrap_0_2pi(theta0 + angles)
-        #     poses_turn[:, :2] = self.pose[:2]
     
         # Determine poses while moving straight
         if abs(distance) < distance_eps_m:

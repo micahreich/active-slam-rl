@@ -1,25 +1,25 @@
 environment:
   pose_dim: &pose_dim 3
   action_dim: &action_dim 2
-  episode_maxlen_steps: 250
+  episode_maxlen_steps: 40
   percentage_of_map_to_explore: 0.95
   map_name: box2
   og_map_resolution: 0.2
   omega: 3.0
   v: 1.0
-  dt: 0.1
+  dt: 0.2
   travel_cut_short_dist_m: 0.2
   og_map_shape: &og_map_shape [1, 128, 128]
 
 
 sac:
   discount: 0.99
-  critic_tau: 0.005
-  actor_update_frequency: 1
+  critic_tau: 0.001
+  actor_update_frequency: 2
   critic_target_update_frequency: 1
-  batch_size: 1024
+  batch_size: 512
   learnable_temperature: false
-  init_temperature: 0.01
+  init_temperature: 0.2
   action_dim: *action_dim
   actor_lr: !!float 1e-4
   critic_lr: !!float 1e-4
@@ -29,29 +29,29 @@ sac:
     og_map_shape: *og_map_shape
     pose_dim: *pose_dim
     action_dim: *action_dim
-    og_map_embedding_size: 128
+    og_map_embedding_size: 256
     encoder_channels: [32, 64, 64]
     encoder_kernel_sizes: [8, 4, 4]
-    hidden_dim: 128
+    hidden_dim: 256
     hidden_depth: 2
 
   actor:
     og_map_shape: *og_map_shape
     pose_dim: *pose_dim
     action_dim: *action_dim
-    og_map_embedding_size: 128
+    og_map_embedding_size: 256
     encoder_channels: [32, 64, 64]
     encoder_kernel_sizes: [8, 4, 4]
-    hidden_dim: 128
+    hidden_dim: 256
     hidden_depth: 2
-    log_std_bounds: [-5.0, 2.0]
+    log_std_bounds: [-20.0, 2.0]
     action_bounds:
       low: [-3.14159, 0.0]
       high: [3.14159, 10.0]
 
 train:
   num_train_steps: 1_000_000
-  num_seed_steps: 5_000
+  num_seed_steps: 1_000
   replay_buffer_capacity: 400_000
   eval_frequency: 5
   num_eval_episodes: 2
