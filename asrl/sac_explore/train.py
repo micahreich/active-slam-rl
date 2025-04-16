@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import yaml
 import gymnasium as gym
+import json
 
 from asrl.sac_explore.logger import Logger
 from asrl.sac_explore.replay_buffer import ReplayBuffer
@@ -27,6 +28,8 @@ class Workspace(object):
         self.logger = Logger(self.work_dir)
 
         self.env = GymExploreEnv.from_dict(cfg['environment'])
+        # self.env.render_mode = 'human'
+        
         self.agent = SACAgent(cfg['sac'], self.device)
         print(f'[Train] agent # params: {self.agent.count_parameters()}')
 
@@ -63,7 +66,7 @@ class Workspace(object):
             
             while not done:
                 with utils.eval_mode(self.agent):
-                    action = self.agent.act(obs, sample=False)
+                    action = self.agent.act(obs, sample=True)
                 
                 obs, reward, terminated, truncated, _ = self.env.step(action)
                 done = float(terminated or truncated)
@@ -120,14 +123,14 @@ class Workspace(object):
                     print(f'[Train] step: {self.step}, episode: {episode}, reward: {episode_reward}')
                     self.episode_num += 1
 
-                # evaluate agent periodically
-                if self.episode_num % self.cfg['train']['eval_frequency'] == 0:
-                    self.logger.log('eval/episode', episode, self.step)
-                    self.evaluate()
+                # # evaluate agent periodically
+                # if self.episode_num % self.cfg['train']['eval_frequency'] == 0:
+                #     self.logger.log('eval/episode', episode, self.step)
+                #     self.evaluate()
 
                 self.logger.log('train/episode_reward', episode_reward, self.step)
 
-                obs, info = self.env.reset()
+                obs, _ = self.env.reset()
                 self.agent.reset()
                 
                 done = False
@@ -149,6 +152,7 @@ class Workspace(object):
                 self.agent.update(self.replay_buffer, self.logger, self.step)
 
             next_obs, reward, terminations, truncations, infos = self.env.step(action)
+            self.env.render()
 
             # allow infinite bootstrap
             done = float(terminations or truncations)
@@ -164,7 +168,7 @@ class Workspace(object):
 if __name__ == '__main__':
     with open("/home/dev/workspace/asrl/sac_explore/config/params.yaml", "r") as f:
         cfg = yaml.safe_load(f)
-        print(cfg)
+        print(json.dumps(cfg, indent=4))
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     

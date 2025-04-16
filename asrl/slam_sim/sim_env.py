@@ -25,6 +25,7 @@ class SimulationEnvironment:
         self._dt = dt  # Time step
         self._travel_cut_short_dist_m = travel_cut_short_dist_m
         self.timesteps_elapsed = 0
+        self.envsteps_elapsed = 0
         
         map_name, _ = os.path.splitext(map_name)
         map_fpath = os.path.join(MAPS_DIRECTORY, f"{map_name}.txt")
@@ -48,12 +49,13 @@ class SimulationEnvironment:
         Reset the simulation environment to a random pose in free space and reset the occupancy grid map.
         """
         self.timesteps_elapsed = 0
+        self.envsteps_elapsed = 0
         
         if pose is None:
             pose = np.zeros((3,))
             pose[:2] = self.array_map.sample_free_space(output_type='xy_m')
-            pose[2] = np.random.uniform(0, 2 * np.pi)
-            # pose[2] = 0.0
+            # pose[2] = np.random.uniform(0, 2 * np.pi)
+            pose[2] = 0.0
         
         self.pose = pose
         self.og_map.reset()
@@ -64,6 +66,27 @@ class SimulationEnvironment:
         
         return self.get_observation()
     
+    # def _process_og_map(self, og_map: NDArray) -> NDArray:
+    #     p_free_thresh = 0.1
+    #     p_occ_thresh = 1 - p_free_thresh
+        
+    #     l_free_thresh = np.log(p_free_thresh / (1-p_free_thresh))
+    #     l_occ_thresh = np.log(p_occ_thresh / (1-p_occ_thresh))
+        
+    #     occupied_cells = og_map > l_occ_thresh
+    #     free_cells = og_map < l_free_thresh
+        
+    #     processed_map = np.where(occupied_cells, 0, -1)
+    #     processed_map[free_cells] = 1
+        
+    #     return processed_map.astype(np.int8)
+    
+    def _process_og_map(self, og_map: OccupancyGridMapper) -> NDArray:
+        processed_map = og_map.to_prob_map()
+        processed_map = np.clip(processed_map * 255, 0, 255).astype(np.uint8)
+
+        return processed_map
+        
     def get_observation(self) -> Tuple[NDArray, NDArray]:
         """
         Get the current observation of the environment.
@@ -75,13 +98,14 @@ class SimulationEnvironment:
         normalized_pose = np.zeros(3)
         normalized_pose[0] = self.pose[0] / self.og_map.width_m
         normalized_pose[1] = self.pose[1] / self.og_map.height_m
-        normalized_pose[2] = wrap_0_2pi(self.pose[2]) / (2*np.pi)
+        normalized_pose[2] = wrap_0_2pi(self.pose[2]) / (2 * np.pi)
         
-        prob_map = self.og_map.to_prob_map()
-        prob_map = np.clip(prob_map * 255, 0, 255).astype(np.uint8)
-        prob_map_h, prob_map_w = prob_map.shape
+        # prob_map = self.og_map.to_prob_map()
+        # prob_map = np.clip(prob_map * 255, 0, 255).astype(np.uint8)
+        # prob_map_h, prob_map_w = self.og_map.shape
+        processed_map = self._process_og_map(self.og_map)
         
-        return prob_map.reshape((1, prob_map_h, prob_map_w)), normalized_pose
+        return processed_map[None, ...], normalized_pose
     
     def step(self, action: NDArray) -> None:
         """
@@ -104,17 +128,29 @@ class SimulationEnvironment:
         - The agent's final pose after movement is set to the last pose along the traveled ray.
         """
         angle, distance = action
+        x0, y0, theta0 = self.pose
         angle = angle_wrap(angle, mode='-pi:pi')
         
         max_travel_distance = self.array_map.max_travel_distance_along_ray(self.pose[:2], self.pose[2] + angle)
         travel_distance = max(0, min(max_travel_distance - self._travel_cut_short_dist_m, distance))
-        distance_from_wall = max_travel_distance - travel_distance
+        distance_from_env = max_travel_distance - distance
         
+        # # Find occupancy at the ending position
+        # ray = np.array([
+        #     np.cos(theta0 + angle),
+        #     np.sin(theta0 + angle)
+        # ])
+        
+        # desired_end_position = self.pose[:2] + ray * distance
+        # ogmap_i, ogmap_j = self.og_map._indexer.xy_m_to_ij(desired_end_position[0], desired_end_position[1])
+        # occupancy_log_odds_end_position = self.og_map.grid[ogmap_i, ogmap_j]
+        
+        # Determine poses while moving straight
         traveled_poses = self.travel_along_ray(angle, travel_distance)
         timesteps_elapsed = len(traveled_poses)
 
         if timesteps_elapsed > 0:
-            scans = self.array_map.raycast_in_map(traveled_poses)
+            scans = self.array_map.raycast_in_map(traveled_poses, r_max_m=5.0)
             timesteps_elapsed = len(traveled_poses)
             
             for pose, scan in zip(traveled_poses, scans):
@@ -125,7 +161,9 @@ class SimulationEnvironment:
             timesteps_elapsed = 1
             
         self.timesteps_elapsed += timesteps_elapsed
-        return self.get_observation(), timesteps_elapsed, distance_from_wall
+        self.envsteps_elapsed += 1
+        
+        return self.get_observation(), timesteps_elapsed, distance_from_env
     
     def travel_along_ray(self, angle: NDArray, distance: float) -> NDArray:
         """
@@ -140,44 +178,40 @@ class SimulationEnvironment:
         """
         x0, y0, theta0 = self.pose
         
-        angle_eps_rad = 1e-5
         distance_eps_m = 1e-5
         
-        # Determine poses while turning to the desired angle
-        if abs(angle) < angle_eps_rad:
-            poses_turn = np.empty((0, 3))
-        else:
-            T = abs(angle) / abs(self._omega)
-            N = int(np.ceil(T / self._dt))
-            t = np.linspace(self._dt, N * self._dt, N)
-            angles = np.sign(angle) * np.minimum(abs(self._omega) * t, abs(angle))
+        # # Determine poses while turning to the desired angle
+        # if abs(angle) < angle_eps_rad:
+        #     poses_turn = np.empty((0, 3))
+        # else:
+        #     T = abs(angle) / abs(self._omega)
+        #     N = int(np.ceil(T / self._dt))
+        #     t = np.linspace(self._dt, N * self._dt, N)
+        #     angles = np.sign(angle) * np.minimum(abs(self._omega) * t, abs(angle))
             
-            poses_turn = np.empty((N, 3))
-            poses_turn[:, 2] = wrap_0_2pi(theta0 + angles)
-            poses_turn[:, :2] = self.pose[:2]
+        #     poses_turn = np.empty((N, 3))
+        #     poses_turn[:, 2] = wrap_0_2pi(theta0 + angles)
+        #     poses_turn[:, :2] = self.pose[:2]
     
         # Determine poses while moving straight
         if abs(distance) < distance_eps_m:
-            poses_straight = np.empty((0, 3))
-        else:
-            ray = np.array([
-                np.cos(theta0 + angle),
-                np.sin(theta0 + angle)
-            ])
-            
-            T = distance / self._v
-            N = int(np.ceil(T / self._dt))
-            t = np.linspace(self._dt, N * self._dt, N)
-            ds = np.minimum(self._v * t, distance)
-            
-            poses_straight = np.empty((N, 3))
-            poses_straight[:, 2] = wrap_0_2pi(theta0 + angle)
-            poses_straight[:, :2] = self.pose[:2] + ray * ds[:, None]
-            
-        # Combine the two segments
-        poses = np.vstack((poses_turn, poses_straight))
+            return np.empty((0, 3))
         
-        return poses
+        ray = np.array([
+            np.cos(theta0 + angle),
+            np.sin(theta0 + angle)
+        ])
+        
+        T = distance / self._v
+        N = int(np.ceil(T / self._dt))
+        t = np.linspace(self._dt, N * self._dt, N)
+        ds = np.minimum(self._v * t, distance)
+        
+        poses_straight = np.zeros((N, 3))
+        poses_straight[:, :2] = self.pose[:2] + ray * ds[:, None]
+        poses_straight[:, 2] = theta0
+        
+        return poses_straight
 
 def plot_poses(poses, scale=0.2, ax=None):
     """
@@ -188,7 +222,7 @@ def plot_poses(poses, scale=0.2, ax=None):
         style: 'arrow', 'circle', or 'frame'
         scale: length of heading indicator
         ax: matplotlib axis (optional)
-    """
+    """    
     if ax is None:
         fig, ax = plt.subplots()
         ax.set_aspect('equal')
@@ -202,21 +236,24 @@ def plot_poses(poses, scale=0.2, ax=None):
     ax.set_xlabel('x')
     ax.set_ylabel('y')
     ax.grid(True)
+    
     return ax
 
 
 def test_travel_along_ray():
-    env = SimulationEnvironment('/home/dev/workspace/asrl/maps/floorplan1.txt', omega=1.0, v=1.0, dt=0.25,
+    env = SimulationEnvironment('/home/dev/workspace/asrl/maps/floorplan1.txt',
+                                og_map_resolution=0.1,
+                                omega=1.0,
+                                v=1.0,
+                                dt=0.1,
+                                travel_cut_short_dist_m=0.1,
                                 og_map_shape=(256, 256))
-    env.pose = np.array([2.0, 1.0, np.pi/2])  # Initial pose
+    env.pose = np.array([2.0, 1.0, 0.0])  # Initial pose
     angle = -np.pi / 4  # 45 degrees
     distance = 1.0
     poses = env.travel_along_ray(angle, distance)
     
     print(f"Traveled poses: {poses}")
-    
-    ax = plot_poses(poses)
-    plt.show()
 
 
 if __name__ == "__main__":

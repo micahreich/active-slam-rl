@@ -71,7 +71,7 @@ class SACAgent(Agent):
     def update_critic(self, obs, action, reward, next_obs, not_done, logger, step):
         dist = self.actor(next_obs)
         next_action = dist.rsample()
-        log_prob = dist.log_prob(next_action).sum(-1, keepdim=True)
+        log_prob = dist.log_prob(next_action).sum(1, keepdim=True)
         target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
         target_V = torch.min(target_Q1,
                              target_Q2) - self.alpha.detach() * log_prob
@@ -83,18 +83,20 @@ class SACAgent(Agent):
         critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(
             current_Q2, target_Q)
         logger.log('train_critic/loss', critic_loss, step)
+        logger.log('train_critic/target_Q', target_Q.mean(), step)
+        logger.log('train_critic/current_Q1', current_Q1.mean(), step)
+        logger.log('train_critic/current_Q2', current_Q2.mean(), step)
 
         # Optimize the critic
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
         self.critic_optimizer.step()
-
-        # self.critic.log(logger, step)
 
     def update_actor_and_alpha(self, obs, logger, step):
         dist = self.actor(obs)
         action = dist.rsample()
-        log_prob = dist.log_prob(action).sum(-1, keepdim=True)
+        log_prob = dist.log_prob(action).sum(1, keepdim=True)
         actor_Q1, actor_Q2 = self.critic(obs, action)
 
         actor_Q = torch.min(actor_Q1, actor_Q2)
@@ -107,28 +109,20 @@ class SACAgent(Agent):
         # optimize the actor
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
         self.actor_optimizer.step()
 
-        # self.actor.log(logger, step)
-
-        if self.learnable_temperature:
-            self.log_alpha_optimizer.zero_grad()
-            alpha_loss = (self.alpha *
-                          (-log_prob - self.target_entropy).detach()).mean()
-            logger.log('train_alpha/loss', alpha_loss, step)
-            logger.log('train_alpha/value', self.alpha, step)
-            alpha_loss.backward()
-            self.log_alpha_optimizer.step()
+        # if self.learnable_temperature:
+        #     self.log_alpha_optimizer.zero_grad()
+        #     alpha_loss = (self.alpha *
+        #                   (-log_prob - self.target_entropy).detach()).mean()
+        #     logger.log('train_alpha/loss', alpha_loss, step)
+        #     logger.log('train_alpha/value', self.alpha, step)
+        #     alpha_loss.backward()
+        #     self.log_alpha_optimizer.step()
 
     def update(self, replay_buffer, logger, step):
         obs, action, reward, next_obs, not_done = replay_buffer.sample(self.batch_size)
-        # print("obs")
-        # for x in obs:
-        #     print(x.shape)
-        
-        # print("next")
-        # for y in next_obs:
-        #     print(y.shape)
         
         logger.log('train/batch_reward', reward.mean(), step)
 

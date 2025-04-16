@@ -264,7 +264,8 @@ class ArrayMap:
         points_b_W = np.reshape(t_hit[:, None] * raycast_vectors[:, 3:5], (B, n_rays, 2))
         points_b_B = points_b_W @ B_R_W_array.transpose(0, 2, 1)
         
-        mask_valid = np.reshape((t_hit <= r_max_m) & np.isfinite(t_hit), (B, n_rays))
+        r_min_m = 0.01
+        mask_valid = np.reshape((r_min_m <= t_hit) & (t_hit <= r_max_m) & np.isfinite(t_hit), (B, n_rays))
         result = [
             points_b_B[i, ...][mask_valid[i]] for i in range(B)
         ]
@@ -276,7 +277,7 @@ class ArrayMap:
     
 
 if __name__ == "__main__":
-    m = ArrayMap('/home/dev/workspace/asrl/maps/floorplan1.txt', resolution=1)
+    m = ArrayMap('/home/dev/workspace/asrl/maps/box2.txt', resolution=1)
     
     coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
     grid = create_grid_xy(

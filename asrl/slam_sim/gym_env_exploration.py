@@ -12,7 +12,7 @@ class GymExploreEnv(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 5}
     
     def __init__(self,
-                 episode_maxlen_s,
+                 episode_maxlen_steps,
                  percentage_of_map_to_explore,
                  map_name,
                  og_map_resolution,
@@ -24,7 +24,7 @@ class GymExploreEnv(gym.Env):
                  render_mode=None):
         super().__init__()
         
-        self.episode_maxlen_s = episode_maxlen_s
+        self.episode_maxlen_steps = episode_maxlen_steps
         self.percentage_of_map_to_explore = percentage_of_map_to_explore
 
         # Define observation space; positions are normalized to [0, 1] by dividing by the occupancy grid map size
@@ -39,10 +39,10 @@ class GymExploreEnv(gym.Env):
         })
 
         # Define action space as (angle, distance); angle is normalized to [-pi, pi]rad and distance are
-        # limited to [0, 100]m
+        # limited to [0, max]m
         self.action_space = spaces.Box(
             low=np.array([-np.pi, 0.0], dtype=np.float32),
-            high=np.array([np.pi, 20.0], dtype=np.float32),
+            high=np.array([np.pi, 10.0], dtype=np.float32),
             dtype=np.float32
         )
         
@@ -84,7 +84,7 @@ class GymExploreEnv(gym.Env):
         return self._to_gym_observation(obs), info
     
     def step(self, action):
-        obs, _, dist_from_wall = self.simulator.step(action)
+        obs, timesteps_elapsed, dist_from_env = self.simulator.step(action)
         free_area = self.simulator.og_map.free_area_m2
         
         delta_area = free_area - self.prev_free_area
@@ -92,9 +92,15 @@ class GymExploreEnv(gym.Env):
         
         self.prev_free_area = free_area
         
-        reward = max(0.0, delta_area / map_area) + 1e-4 * dist_from_wall
+        coverage_reward = max(0.0, delta_area / map_area)
+        # safety_reward = (np.abs(dist_from_env) * dist_from_env) / max(self.simulator.array_map.height_m,
+        #                                                               self.simulator.array_map.width_m)
+        fast_reward = -1 #* self.simulator._dt * timesteps_elapsed
+        
+        reward = coverage_reward + 0.02 * fast_reward #0.01 * safety_reward
+        
         done = free_area / map_area > self.percentage_of_map_to_explore
-        truncated = self.simulator.time_elapsed >= self.episode_maxlen_s
+        truncated = self.simulator.envsteps_elapsed >= self.episode_maxlen_steps
         
         return self._to_gym_observation(obs), reward, done, truncated, {}
     
@@ -102,7 +108,7 @@ class GymExploreEnv(gym.Env):
         if self.render_mode != "human":
             return
         
-        normalized_pose, prob_map = self.simulator.get_observation()
+        prob_map, normalized_pose = self.simulator.get_observation()
         pose = normalized_pose * np.array([self.simulator.og_map.width_m,
                                            self.simulator.og_map.height_m,
                                            2*np.pi])
@@ -113,21 +119,20 @@ class GymExploreEnv(gym.Env):
         extent = [0, width * res, 0, height * res]
         
         if self.fig is None:
+            plt.ion()
             self.fig, self.ax = plt.subplots()
             
             self.im = self.ax.imshow(prob_map[0], vmin=0, vmax=255, cmap='gray_r',
                                  interpolation='nearest', origin='upper', extent=extent)
 
-            self.pose_circle = plt.Circle((0, 0), radius=1.0, edgecolor='black', facecolor='none')
-            self.pose_line, = self.ax.plot([], [], color='black')
+            self.pose_circle = plt.Circle((0, 0), radius=1.0, edgecolor='blue', facecolor='none')
+            self.pose_line, = self.ax.plot([], [], color='blue')
             self.ax.add_patch(self.pose_circle)
             self.ax.set_aspect('equal')
             self.ax.set_title("Occupancy Grid")
         else:
             self.im.set_data(prob_map[0])
-            
-        print(f"{prob_map.shape=}, {prob_map.dtype=}")
-        
+                    
         # Update pose drawing
         x, y, theta = pose
         scale = 1.0
@@ -145,6 +150,7 @@ class GymExploreEnv(gym.Env):
     
     def close(self):
         if hasattr(self, 'fig') and self.fig is not None:
+            plt.ioff()
             plt.close(self.fig)
             self.fig = None
             self.ax = None
@@ -155,7 +161,7 @@ class GymExploreEnv(gym.Env):
     @staticmethod
     def from_dict(cfg):
         return GymExploreEnv(
-            episode_maxlen_s=cfg['episode_maxlen_s'],
+            episode_maxlen_steps=cfg['episode_maxlen_steps'],
             percentage_of_map_to_explore=cfg['percentage_of_map_to_explore'],
             map_name=cfg['map_name'],
             og_map_resolution=cfg['og_map_resolution'],

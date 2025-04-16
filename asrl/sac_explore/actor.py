@@ -34,13 +34,17 @@ class DiagGaussianActor(nn.Module):
     def __init__(self, og_map_shape, pose_dim, action_dim,
                  og_map_embedding_size,
                  encoder_channels,
+                 encoder_kernel_sizes,
                  hidden_dim,
                  hidden_depth,
                  log_std_bounds,
                  action_bounds):
         super().__init__()
         
-        self.encoder = utils.CNNEncoder(og_map_shape, channels=encoder_channels, output_dim=og_map_embedding_size)
+        self.encoder = utils.CNNEncoder(og_map_shape,
+                                        channels=encoder_channels,
+                                        kernel_sizes=encoder_kernel_sizes,
+                                        output_dim=og_map_embedding_size)
         self.net = utils.MLP(
             input_dim=pose_dim + og_map_embedding_size,
             hidden_dim=hidden_dim,
@@ -73,7 +77,7 @@ class DiagGaussianActor(nn.Module):
         og_map, pose = obs['og_map'], obs['pose']
         
         encoded_map = self.encoder(og_map)
-        encoded_obs = torch.cat([pose, encoded_map], dim=-1)
+        encoded_obs = torch.cat([encoded_map, pose], dim=-1)
         
         mu, log_std = self.net(encoded_obs).chunk(2, dim=-1)
 
@@ -98,6 +102,7 @@ class DiagGaussianActor(nn.Module):
             action_dim=cfg['action_dim'],
             og_map_embedding_size=cfg['og_map_embedding_size'],
             encoder_channels=cfg['encoder_channels'],
+            encoder_kernel_sizes=cfg['encoder_kernel_sizes'],
             hidden_dim=cfg['hidden_dim'],
             hidden_depth=cfg['hidden_depth'],
             log_std_bounds=cfg['log_std_bounds'],

@@ -25,9 +25,9 @@ def get_key(timeout=0.1):
 
 if __name__ == "__main__":
     env = GymExploreEnv(
-        episode_maxlen_s=60 * 5,
-        percentage_of_map_to_explore=0.90,
-        map_name="floorplan1",
+        episode_maxlen_steps=60 * 5,
+        percentage_of_map_to_explore=0.95,
+        map_name="box2",
         og_map_resolution=0.2,
         omega=1.0,
         v=1.0,
@@ -51,9 +51,10 @@ if __name__ == "__main__":
     
     d = 1.0
     key_to_action = {
-        'k': np.array([np.pi/2, 0]),
-        'l': np.array([-np.pi/2, 0]),
-        'w': np.array([0, d]),
+        'w': np.array([np.pi/2, d]),
+        'a': np.array([np.pi, d]),
+        's': np.array([-np.pi/2, d]),
+        'd': np.array([0.0, d]),
     }
     
     cumulative_reward = 0.0

@@ -7,17 +7,22 @@ from torch.distributions import Normal
 
 class CNNEncoder(nn.Module):
     def __init__(self, input_shape,
-                 channels=[32, 64, 64],
-                 output_dim=128):
+                 channels,
+                 kernel_sizes,
+                 output_dim):
         super().__init__()
         
         in_channels, h, w = input_shape
         layers = []
-        
+                
         for i, c_out in enumerate(channels):
             c_in = channels[i-1] if i > 0 else in_channels
 
-            layers.append(nn.Conv2d(c_in, c_out, kernel_size=5, stride=2, padding=2))
+            ksize = kernel_sizes[i]
+            stride = ksize // 2
+            padding = ksize // 2
+            
+            layers.append(nn.Conv2d(c_in, c_out, kernel_size=ksize, stride=stride, padding=padding))
             layers.append(nn.ReLU())
 
         self.conv = nn.Sequential(*layers, nn.Flatten())
@@ -86,7 +91,7 @@ class eval_mode(object):
 def weight_init(m):
     """Custom weight init for Conv2D and Linear layers."""
     if isinstance(m, nn.Linear):
-        nn.init.orthogonal_(m.weight.data)
+        nn.init.xavier_normal_(m.weight.data)
         if hasattr(m.bias, 'data'):
             m.bias.data.fill_(0.0)
 
@@ -117,7 +122,10 @@ def count_parameters(model):
 
 if __name__ == "__main__":
     input_shape = (1, 128, 128)
-    encoder = CNNEncoder(input_shape)
+    encoder = CNNEncoder(input_shape,
+                         channels=[32, 64, 64],
+                         kernel_sizes=[8, 4, 4],
+                         output_dim=256)
     total_params = sum(p.numel() for p in encoder.parameters() if p.requires_grad)
 
     print(encoder)

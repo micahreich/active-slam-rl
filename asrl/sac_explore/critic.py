@@ -8,27 +8,32 @@ from asrl.sac_explore import utils
 
 class QCritic(nn.Module):
     def __init__(self, og_map_shape, pose_dim, action_dim,
-                 og_map_embedding_size=128,
-                 encoder_channels=[32, 64, 64],
-                 hidden_dim=256,
-                 hidden_depth=2):
+                 og_map_embedding_size,
+                 encoder_channels,
+                 encoder_kernel_sizes,
+                 hidden_dim,
+                 hidden_depth):
         super().__init__()
         
         self.encoder = utils.CNNEncoder(og_map_shape,
-                                        channels=encoder_channels, output_dim=og_map_embedding_size)
+                                        channels=encoder_channels,
+                                        kernel_sizes=encoder_kernel_sizes,
+                                        output_dim=og_map_embedding_size)
         self.net = utils.MLP(
-            input_dim=pose_dim + og_map_embedding_size + action_dim,
+            input_dim=og_map_embedding_size + pose_dim + action_dim,
             hidden_dim=hidden_dim,
             output_dim=1,
             hidden_depth=hidden_depth,
             output_mod=None
         )
+        
+        self.apply(utils.weight_init)
     
     def forward(self, obs, action):
         og_map, pose = obs['og_map'], obs['pose']
         
         encoded_map = self.encoder(og_map)
-        encoded_obs_action = torch.cat([pose, encoded_map, action], dim=-1)
+        encoded_obs_action = torch.cat([encoded_map, pose, action], dim=-1)
         q = self.net(encoded_obs_action)
 
         return q
@@ -39,6 +44,7 @@ class DoubleQCritic(nn.Module):
     def __init__(self, og_map_shape, pose_dim, action_dim,
                  og_map_embedding_size,
                  encoder_channels,
+                 encoder_kernel_sizes,
                  hidden_dim,
                  hidden_depth):
         super().__init__()
@@ -46,12 +52,14 @@ class DoubleQCritic(nn.Module):
         self.Q1 = QCritic(og_map_shape, pose_dim, action_dim,
                           og_map_embedding_size=og_map_embedding_size,
                           encoder_channels=encoder_channels,
+                          encoder_kernel_sizes=encoder_kernel_sizes,
                           hidden_dim=hidden_dim,
                           hidden_depth=hidden_depth)
         
         self.Q2 = QCritic(og_map_shape, pose_dim, action_dim,
                           og_map_embedding_size=og_map_embedding_size,
                           encoder_channels=encoder_channels,
+                          encoder_kernel_sizes=encoder_kernel_sizes,
                           hidden_dim=hidden_dim,
                           hidden_depth=hidden_depth)
         
@@ -73,10 +81,11 @@ class DoubleQCritic(nn.Module):
             og_map_shape=cfg['og_map_shape'],
             pose_dim=cfg['pose_dim'],
             action_dim=cfg['action_dim'],
-            og_map_embedding_size=cfg.get('og_map_embedding_size', 128),
-            encoder_channels=cfg.get('encoder_channels', [32, 64, 64]),
-            hidden_dim=cfg.get('hidden_dim', 256),
-            hidden_depth=cfg.get('hidden_depth', 2)
+            og_map_embedding_size=cfg['og_map_embedding_size'],
+            encoder_channels=cfg['encoder_channels'],
+            encoder_kernel_sizes=cfg['encoder_kernel_sizes'],
+            hidden_dim=cfg['hidden_dim'],
+            hidden_depth=cfg['hidden_depth']
         )
     
     # def log(self, logger, step):

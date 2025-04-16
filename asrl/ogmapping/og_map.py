@@ -206,6 +206,9 @@ class OccupancyGridMapper:
             pose (NDArray): The robot's pose (x, y, theta).
             scan_points_b_B (NDArray): The (x, y) points from the laser scan in body frame.
         """
+        if len(scan_points_b_B) == 0:
+            return
+        
         # Rotate scan points into world frame
         W_R_B = spatialmath.base.rot2(pose[2])
         scan_points_w_W = scan_points_b_B @ W_R_B.T + pose[:2]  # shape (N, 2)
@@ -223,6 +226,9 @@ class OccupancyGridMapper:
         out = bresenhamline(_start_points, scan_points_xy_r_floored, max_iter=-1)
 
         rays_xy_r_floored, max_iter = out
+        
+        if len(rays_xy_r_floored) == 0: return
+        
         rays_xy_r_floored = rays_xy_r_floored.reshape((-1, max_iter, 2))
 
         # Compute distances along the ray        
