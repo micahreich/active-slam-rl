@@ -15,13 +15,13 @@ environment:
 sac:
   discount: 0.99
   critic_tau: 0.001
-  actor_update_frequency: 2
+  actor_update_frequency: 1
   critic_target_update_frequency: 1
   batch_size: 512
   learnable_temperature: false
-  init_temperature: 0.2
+  init_temperature: 0.0001
   action_dim: *action_dim
-  actor_lr: !!float 1e-4
+  actor_lr: !!float 5e-5
   critic_lr: !!float 1e-4
   alpha_lr: !!float 1e-4
 
@@ -29,20 +29,20 @@ sac:
     og_map_shape: *og_map_shape
     pose_dim: *pose_dim
     action_dim: *action_dim
-    og_map_embedding_size: 256
+    og_map_embedding_size: 128
     encoder_channels: [32, 64, 64]
     encoder_kernel_sizes: [8, 4, 4]
-    hidden_dim: 256
+    hidden_dim: 128
     hidden_depth: 2
 
   actor:
     og_map_shape: *og_map_shape
     pose_dim: *pose_dim
     action_dim: *action_dim
-    og_map_embedding_size: 256
+    og_map_embedding_size: 128
     encoder_channels: [32, 64, 64]
     encoder_kernel_sizes: [8, 4, 4]
-    hidden_dim: 256
+    hidden_dim: 128
     hidden_depth: 2
     log_std_bounds: [-20.0, 2.0]
     action_bounds:
@@ -51,7 +51,7 @@ sac:
 
 train:
   num_train_steps: 1_000_000
-  num_seed_steps: 1_000
-  replay_buffer_capacity: 400_000
+  num_seed_steps: 5_000
+  replay_buffer_capacity: 500_000
   eval_frequency: 5
   num_eval_episodes: 2

@@ -87,8 +87,8 @@ class MLP(nn.Module):
         self.trunk = mlp(input_dim, hidden_dim, output_dim, hidden_depth,
                          output_mod)
 
-        nn.init.zeros_(self.trunk[-1].weight)
-        nn.init.zeros_(self.trunk[-1].bias)
+        # nn.init.zeros_(self.trunk[-1].weight)
+        # nn.init.zeros_(self.trunk[-1].bias)
         
     def forward(self, x):
         return self.trunk(x)

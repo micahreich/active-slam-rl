@@ -32,7 +32,7 @@ class SACAgent(Agent):
         self.log_alpha = torch.tensor(np.log(cfg["init_temperature"])).to(self.device)
         self.log_alpha.requires_grad = True
         # set target entropy to -|A|
-        self.target_entropy = 0.0 #-cfg["action_dim"]
+        self.target_entropy = -cfg["action_dim"]
 
         # optimizers
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=cfg["actor_lr"],)
@@ -52,14 +52,10 @@ class SACAgent(Agent):
     def count_parameters(self):
         return utils.count_parameters(self.actor) + utils.count_parameters(self.critic)
 
-    # @property
-    # def alpha(self):
-    #     return self.log_alpha.exp()
-
     @property
     def alpha(self):
-        return torch.tensor(0.0).to(self.device)
-    
+        return self.log_alpha.exp()
+
     def act(self, obs, sample=False):        
         obs = {
             "og_map": torch.FloatTensor(obs["og_map"]).to(self.device).unsqueeze(0),
@@ -78,7 +74,7 @@ class SACAgent(Agent):
             next_action = dist.rsample()
             log_prob = dist.log_prob(next_action).sum(1, keepdim=True)
             target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
-            target_V = torch.min(target_Q1, target_Q2) #- self.alpha.detach() * log_prob
+            target_V = torch.min(target_Q1, target_Q2) - self.alpha.detach() * log_prob
             target_Q = reward + (not_done * self.discount * target_V)
             target_Q = target_Q.detach()
 
@@ -104,12 +100,11 @@ class SACAgent(Agent):
         log_prob = dist.log_prob(action)
         actor_Q1, actor_Q2 = self.critic(obs, action)
         actor_Q = torch.min(actor_Q1, actor_Q2)
-        # actor_loss = (self.alpha.detach() * log_prob - actor_Q).mean()
-        actor_loss = (-actor_Q).mean()
+        actor_loss = (self.alpha.detach() * log_prob - actor_Q).mean()
 
         logger.log('train_actor/loss', actor_loss, step)
-        logger.log('train_actor/entropy', -log_prob.mean(), step)
         logger.log('train_actor/target_entropy', self.target_entropy, step)
+        logger.log('train_actor/entropy', -log_prob.mean(), step)
 
         # optimize the actor
         self.actor_optimizer.zero_grad()

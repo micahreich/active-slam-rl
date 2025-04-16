@@ -49,6 +49,9 @@ class DiagGaussianActor(nn.Module):
             output_mod=None
         )
         
+        # nn.init.zeros_(self.net[-1].weight)
+        # nn.init.zeros_(self.net[-1].bias)
+        
         self.log_std_bounds = log_std_bounds
         action_low, action_high = action_bounds
         
