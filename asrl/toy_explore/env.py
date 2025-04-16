@@ -1,3 +1,4 @@
+import time
 from matplotlib import patches, pyplot as plt
 import numpy as np
 import gymnasium as gym
@@ -114,4 +115,5 @@ if __name__ == "__main__":
         action = env.action_space.sample()  # Random action
         obs, reward, done, truncated, info = env.step(action)
         env.render()
+        time.sleep(1/20)
     env.close()

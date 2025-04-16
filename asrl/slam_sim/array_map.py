@@ -141,8 +141,8 @@ class ArrayMap:
     #     return cube_geometries
     
     def _to_o3d_geometry(self, walls: NDArray):
-        inset = 0.05
-        cube_size = 1.0
+        inset = 0.05 * self.resolution
+        cube_size = 1.0 * self.resolution
 
         def create_cube(coord_ij):
             i, j = coord_ij

@@ -20,16 +20,16 @@ gamma = 0.99
 gae_lambda = 0.95
 update_epochs = 5
 norm_adv = True
-clip_coef = 0.2
+clip_coef = 0.15
 clip_vloss = True
 ent_coef = 0.1
 vf_coef = 0.5
-learning_rate = 1e-3
+learning_rate = 3e-4
 num_minibatches = 4
 
-num_envs = 10
-num_steps = 128
-total_timesteps = 1_000_000
+num_envs = 32
+num_steps = 256
+total_timesteps = 50_000_000
 
 batch_size = num_envs * num_steps
 minibatch_size = batch_size // num_minibatches
@@ -47,20 +47,20 @@ def make_vector_obs(obs):
         visited = visited[None, :]
         positions = np.array([positions])[None, :]
     
-    # xys = np.zeros_like(visited, dtype=np.float32)
-    # xys[:, positions] = 1.0
+    xys = np.zeros_like(visited, dtype=np.float32)
+    xys[:, positions] = 1.0
     
-    # row = positions // grid_width
-    # col = positions % grid_width
+    row = positions // grid_width
+    col = positions % grid_width
     
-    # x = (col + 0.5) / grid_width
-    # y = ((grid_height - row - 1) + 0.5) / grid_height
+    x = (col + 0.5) / grid_width
+    y = ((grid_height - row - 1) + 0.5) / grid_height
     
-    # xys = np.column_stack((x, y))
-    # obs_out = np.concatenate((visited, xys), axis=-1).astype(np.float32)
+    xys = np.column_stack((x, y))
+    obs_out = np.concatenate((visited, xys), axis=-1).astype(np.float32)
     
-    visited[:, positions] += 100.0
-    obs_out = visited.astype(np.float32)
+    # obs_out = visited.astype(np.float32)
+    # obs_out[:, positions] += 100.0
     
     if not batched:
         obs_out = obs_out[0]
@@ -87,7 +87,7 @@ def train():
         [make_env(i) for i in range(num_envs)],
     )
     
-    obs_dim = 2 * envs.get_attr('num_cells')[0]
+    obs_dim = 2 + envs.get_attr('num_cells')[0]
     action_dim = envs.single_action_space.n
     
     agent = Agent(obs_dim=obs_dim, action_dim=action_dim).to(device)
@@ -139,7 +139,7 @@ def train():
                         print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
                         logger.log('train/episodic_return', info['episode']['r'], global_step)
                         logger.log('train/episodic_length', info['episode']['l'], global_step)
-
+            
         cum_reward = torch.sum(rewards, dim=0).mean()
         print(f'[Train] Iteration {iteration}/{num_iterations}, Cumulative Rewards: {cum_reward.item()}')
         
@@ -237,7 +237,7 @@ def evaluate():
     action_dim = env.action_space.n
         
     agent = Agent(obs_dim=obs_dim, action_dim=action_dim).to(device)
-    checkpoint_path = '/home/dev/workspace/asrl/toy_explore/runs/exp_2025-04-16_08-50-49/model.pth'
+    checkpoint_path = '/home/dev/workspace/asrl/toy_explore/runs/exp_2025-04-16_09-17-38/model.pth'
     agent.load_state_dict(torch.load(checkpoint_path, map_location=device))
     agent.eval()
         
@@ -253,12 +253,14 @@ def evaluate():
         i += 1
         with torch.no_grad():
             obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
-            action, log_prob, entropy, value = agent.get_action_and_value(obs_tensor)
+            # action, log_prob, entropy, value = agent.get_action_and_value(obs_tensor)
+            logits = agent.actor(obs_tensor)
+            action = logits.argmax(dim=-1).squeeze(0)
 
         obs_dict, reward, done, truncated, info = env.step(action)
         obs = make_vector_obs(obs_dict)
         
-        print(f'Step {i}, Action: {action.item()} (p={log_prob.exp().item()}), Reward: {reward}, Done: {done}')
+        print(f'Step {i}, Action: {action.item()}, Reward: {reward}, Done: {done}')
         
         env.render()
         time.sleep(1/20)

@@ -74,8 +74,8 @@ class ReplayBuffer:
             sampled_obs = sampled_obs['obs']
             sampled_next_obs = sampled_next_obs['obs']
 
-        actions = torch.as_tensor(self.actions[idxs], device=self.device)
-        rewards = torch.as_tensor(self.rewards[idxs], device=self.device)
-        not_dones = torch.as_tensor(self.not_dones[idxs], device=self.device)
+        actions = torch.as_tensor(self.actions[idxs], device=self.device).float()
+        rewards = torch.as_tensor(self.rewards[idxs], device=self.device).float()
+        not_dones = torch.as_tensor(self.not_dones[idxs], device=self.device).float()
 
         return sampled_obs, actions, rewards, sampled_next_obs, not_dones

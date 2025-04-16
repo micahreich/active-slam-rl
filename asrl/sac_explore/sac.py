@@ -34,7 +34,13 @@ class SACAgent(Agent):
         # set target entropy to -|A|
         self.target_entropy = -cfg["action_dim"]
 
-        # optimizers
+        # # optimizers
+        # self.actor_optimizer = self.optimizer = torch.optim.Adam([
+        #     {'params': self.policy.feature_extractor.parameters()},
+        #     {'params': self.policy.actor_head.parameters(), 'lr': lr_actor},
+        #     {'params': self.policy.critic_head.parameters(), 'lr': lr_critic}
+        # ])
+        
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=cfg["actor_lr"],)
 
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=cfg["critic_lr"],)
@@ -91,7 +97,7 @@ class SACAgent(Agent):
         # Optimize the critic
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
+        # torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1.0)
         self.critic_optimizer.step()
 
     def update_actor_and_alpha(self, obs, logger, step):
@@ -109,7 +115,7 @@ class SACAgent(Agent):
         # optimize the actor
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
+        # torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
         self.actor_optimizer.step()
 
         # if self.learnable_temperature:
