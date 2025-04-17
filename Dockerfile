@@ -41,12 +41,13 @@ RUN pip install --no-cache-dir \
     jupyterlab \
     normflows \
     gymnasium \
-    stable-baselines3 \
+    "stable-baselines3[extra]" \
     yapf \
     tensorboard \
     gtsam==4.2 \
     open3d \
     scikit-learn \
+    scikit-image \
     spatialmath-python \
     numba \
     "gymnasium[mujoco]" \
