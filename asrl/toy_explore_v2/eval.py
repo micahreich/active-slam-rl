@@ -26,6 +26,7 @@ if __name__ == "__main__":
 
     while not (done or truncated):
         action, _states = model.predict(obs, deterministic=False)
+        # action = env.action_space.sample()
         obs, reward, done, truncated, info = env.step(action)
         ep_len += 1
         env.render()
