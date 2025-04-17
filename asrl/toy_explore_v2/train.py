@@ -21,10 +21,13 @@ class CustomCNN(BaseFeaturesExtractor):
         n_input_channels = observation_space.shape[0]
         
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 16, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Flatten(),
@@ -42,8 +45,10 @@ class CustomCNN(BaseFeaturesExtractor):
 
 def train(cfg: dict, total_timesteps):
     vec_env = make_vec_env(GridExploreEnvTeleport, n_envs=32, env_kwargs={
-        'grid_size': (8, 8),
-        'max_steps': 512
+        'grid_size': (64, 64),
+        'gaussian_sigma': 5.0,
+        'map_value_max': 1.0,
+        'max_steps': 200,
     })
 
     policy_kwargs = dict(
@@ -54,8 +59,10 @@ def train(cfg: dict, total_timesteps):
     )
     
     model = PPO("CnnPolicy", vec_env, **cfg, verbose=1, policy_kwargs=policy_kwargs)
+    print(model.policy)
+    
     model.learn(total_timesteps, log_interval=2, progress_bar=True)
-    model.save("ppo_grid_explore_cnn")
+    model.save("ppo_grid_explore_cont_cnn")
 
 
 if __name__ == "__main__":

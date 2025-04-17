@@ -16,17 +16,20 @@ from stable_baselines3 import PPO
 
 if __name__ == "__main__":
     # Load from file
-    model = PPO.load("/home/dev/workspace/asrl/toy_explore_v2/ppo_grid_explore_cnn.zip")
+    model = PPO.load("/home/dev/workspace/asrl/toy_explore_v2/ppo_grid_explore_cont_cnn.zip")
 
     env = GridExploreEnvTeleport()
     obs, _ = env.reset()
 
     done, truncated = False, False
+    ep_len = 0
 
     while not (done or truncated):
         action, _states = model.predict(obs, deterministic=False)
         obs, reward, done, truncated, info = env.step(action)
+        ep_len += 1
         env.render()
-        time.sleep(1 / 30.0)
+        time.sleep(1 / 20.0)
 
+    print(f"Episode length: {ep_len}")
     env.close()

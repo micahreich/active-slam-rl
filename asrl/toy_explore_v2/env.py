@@ -1,112 +1,75 @@
-import time
-from matplotlib import patches, pyplot as plt
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-from scipy.spatial import KDTree
-from skimage.graph import route_through_array
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from scipy.ndimage import gaussian_filter
 
 
 class GridExploreEnvTeleport(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 4}
 
-    def __init__(self, grid_size=(8, 8), max_steps=200):
+    def __init__(self, grid_size=(64, 64), max_steps=200, gaussian_sigma=5.0, map_value_max=1.0):
         super().__init__()
-        self.grid_size = grid_size
         self.nrows, self.ncols = grid_size
-        self.num_cells = self.nrows * self.ncols
+        self.grid_size = grid_size
+        self.ncells = self.nrows * self.ncols
         self.max_steps = max_steps
-        
-        self.coords = np.indices((self.nrows, self.ncols)).reshape(2, -1).T
-        self.costmap = np.zeros((self.nrows, self.ncols), dtype=np.float32)
-        
-        # 4 actions: up, down, left, right
-        # self.action_space = spaces.Box(low=0, high=1, shape=(2,), dtype=np.float32)
-        self.action_space = spaces.Discrete(self.num_cells)
-        
-        # Observation space: (visited vector, position index)
-        self.observation_space = spaces.Box(low=0, high=1, shape=(2, self.nrows, self.ncols), dtype=np.float32)
+        self.gaussian_sigma = gaussian_sigma
+        self.map_value_max = map_value_max
+
+        self.action_space = spaces.Box(low=0, high=1, shape=(2,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=map_value_max, shape=(1, self.nrows, self.ncols), dtype=np.float32)
 
         self.reset()
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-
-        self.agent_row = np.random.randint(self.nrows)
-        self.agent_col = np.random.randint(self.ncols)
-        self.visited = np.zeros((self.nrows, self.ncols), dtype=np.int32)
-        self.visited[self.agent_row, self.agent_col] = 1
+        self.map = np.zeros((self.nrows, self.ncols), dtype=np.float32)
         self.steps = 0
-
-        return self._get_obs(), {}
+        return self.map.copy().reshape((1, self.nrows, self.ncols)), {}
 
     def step(self, action):
-        denormalized_action = np.floor(action * np.array([self.nrows, self.ncols]))
-        clipped_action = np.clip(denormalized_action, 0, np.array([self.ncols - 1, self.nrows - 1])).astype(np.int32)
-        # row = int(action // self.ncols)
-        # col = int(action % self.ncols)
-
-        self.agent_row, self.agent_col = row, col
-        
-        reward = 1.0 if not self.visited[self.agent_row, self.agent_col] else -1
-        
-        self.visited[self.agent_row, self.agent_col] = 1.0
-        
-        done = np.all(self.visited)
-        # truncated = self.steps >= self.max_steps
-        
-        if done:
-            reward += 64.0
-        
         self.steps += 1
+        action = np.clip(action, 0, 1)
 
-        return self._get_obs(), reward, done, False, {}
-
-    def _get_obs(self):
-        visited_channel = self.visited.astype(np.float32)
-        agent_position_channel = np.zeros((self.nrows, self.ncols), dtype=np.float32)
-        agent_position_channel[self.agent_row, self.agent_col] = 1.0
+        # Convert normalized action to float (row, col) in grid coordinates
+        r = action[0] * (self.nrows - 1)
+        c = action[1] * (self.ncols - 1)
         
-        return np.stack([visited_channel, agent_position_channel], axis=0)
+        # Create Gaussian centered at (r, c)
+        stamp = np.zeros((self.nrows, self.ncols), dtype=np.float32)
+        stamp[int(r), int(c)] = 1.0
+        stamp = self.gaussian_sigma * 50.0 * gaussian_filter(stamp, sigma=self.gaussian_sigma)
+
+        # Track old total for reward
+        total_before = np.sum(self.map)
+
+        # Add and clip the map
+        self.map = np.clip(self.map + stamp, 0, self.map_value_max)
+
+        # Compute reward as increase in total value
+        total_after = np.sum(self.map)
+        reward = 1e2 * (total_after - total_before) / self.ncells - 0.75
+
+        done = total_after / self.ncells >= self.map_value_max * 0.85
+                
+        return self.map.copy().reshape((1, self.nrows, self.ncols)), reward, done, False, {}
 
     def render(self, mode="human"):
         if not hasattr(self, "_fig"):
             plt.ion()
             self._fig, self._ax = plt.subplots(figsize=(6, 6))
-            self._ax.set_xlim(0, self.ncols)
-            self._ax.set_ylim(0, self.nrows)
-            self._ax.set_xticks(np.arange(0, self.ncols+1))
-            self._ax.set_yticks(np.arange(0, self.nrows+1))
-            self._ax.grid(True)
-            self._ax.set_aspect('equal')
-            
-            self._agent_patch = patches.Circle((0.5, 0.5), 0.3, color='blue', zorder=3)
-            self._ax.add_patch(self._agent_patch)
-            self._visited_patches = []
-
-        # Remove old visited patches
-        for patch in self._visited_patches:
-            patch.remove()
-        self._visited_patches.clear()
-
-        # Add updated visited cells
-        for r in range(self.nrows):
-            for c in range(self.ncols):
-                if self.visited[r, c]:
-                    patch = patches.Rectangle((c, self.nrows - r - 1), 1, 1, color='gray')
-                    self._visited_patches.append(self._ax.add_patch(patch))
-
-        # Move the agent
-        self._agent_patch.center = (
-            self.agent_col + 0.5,
-            self.nrows - self.agent_row - 0.5,
-        )
-
+        self._ax.clear()
+        self._ax.imshow(self.map, cmap='viridis', vmin=0, vmax=self.map_value_max,
+                        extent=[0, self.ncols, 0, self.nrows])
+        self._ax.set_title("Map Value Heatmap")
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()
 
     def close(self):
-        pass
+        plt.close(self._fig)
+        
 
 if __name__ == "__main__":
     env = GridExploreEnvTeleport()
@@ -129,7 +92,7 @@ if __name__ == "__main__":
             should_step = True
             action = np.array([normalized_i, normalized_j])
             
-            print("Action:", action)
+            print(f"{event.xdata=:.2f}, {event.ydata=:.2f} -> {normalized_i=:.2f}, {normalized_j=:.2f}")
             
     cid = env._fig.canvas.mpl_connect('button_press_event', on_click)
     
@@ -139,6 +102,7 @@ if __name__ == "__main__":
         if should_step:
             obs, reward, done, truncated, info = env.step(action)
             env.render()
+            print(f"Step: {env.steps}, Reward: {reward:.2f}, Done: {done}")
             should_step = False
         
     env.close()
