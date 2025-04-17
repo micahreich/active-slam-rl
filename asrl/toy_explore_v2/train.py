@@ -53,7 +53,8 @@ def train(cfg: dict, total_timesteps):
 
     policy_kwargs = dict(
         activation_fn=nn.Tanh,
-        net_arch=dict(pi=[128, 128], vf=[128, 128]),  
+        net_arch=[128, 128],
+        share_features_extractor=True,
         features_extractor_class=CustomCNN,
         features_extractor_kwargs=dict(features_dim=128),
     )
@@ -61,7 +62,7 @@ def train(cfg: dict, total_timesteps):
     model = PPO("CnnPolicy", vec_env, **cfg, verbose=1, policy_kwargs=policy_kwargs)
     print(model.policy)
     
-    model.learn(total_timesteps, log_interval=2, progress_bar=True)
+    model.learn(total_timesteps, log_interval=1, progress_bar=True)
     model.save("ppo_grid_explore_cont_cnn")
 
 

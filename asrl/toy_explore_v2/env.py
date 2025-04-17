@@ -81,7 +81,7 @@ class GridExploreEnvTeleport(gym.Env):
         
         self.agent_r = r
         self.agent_c = c
-                
+
         return self._to_obs(), reward, done, False, {}
 
     def render(self, mode="human"):
