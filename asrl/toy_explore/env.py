@@ -19,10 +19,7 @@ class GridExploreEnv(gym.Env):
         self.action_space = spaces.Discrete(4)
 
         # Observation space: (visited vector, position index)
-        self.observation_space = spaces.Dict({
-            "visited": spaces.MultiBinary(self.num_cells),
-            "position": spaces.Discrete(self.num_cells)
-        })
+        self.observation_space = spaces.Box(low=0, high=1, shape=(self.num_cells + 2,), dtype=np.float32)
 
         self.reset()
 
@@ -61,12 +58,12 @@ class GridExploreEnv(gym.Env):
 
     def _get_obs(self):
         flat_visited = self.visited.flatten()
-        pos_index = self.agent_row * self.ncols + self.agent_col
+        x_normalized = (self.agent_col + 0.5) / self.ncols
+        y_normalized = (self.nrows - self.agent_row - 1 + 0.5) / self.nrows
         
-        return {
-            "visited": flat_visited.copy(),
-            "position": pos_index
-        }
+        return np.concatenate([
+            flat_visited, [x_normalized, y_normalized]
+        ])
 
     def render(self, mode="human"):
         if not hasattr(self, "_fig"):
