@@ -1,1 +1,1 @@
-MAPS_DIRECTORY = '/home/dev/workspace/asrl/maps'
+MAPS_DIRECTORY = '/home/julius/Desktop/active-slam-rl/asrl/maps'
