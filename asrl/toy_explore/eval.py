@@ -33,7 +33,7 @@ class CustomCNN(BaseFeaturesExtractor):
         return self.linear(self.cnn(observations))
 
 if __name__ == "__main__":
-    model = PPO.load("/home/julius/Desktop/active-slam-rl/asrl/toy_explore/ppo_grid_explore.zip")
+    model = PPO.load("/home/julius/Desktop/active-slam-rl/asrl/toy_explore/ppo_grid_explore_20x20.zip")
 
     env = GridExploreEnv(grid_size=(20, 20), obstacle_size=(6, 6), max_steps=1000)
     obs, _ = env.reset()
