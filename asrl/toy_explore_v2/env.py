@@ -9,7 +9,7 @@ from scipy.ndimage import gaussian_filter
 class GridExploreEnvTeleport(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 4}
 
-    def __init__(self, grid_size=(64, 64), max_steps=200, gaussian_sigma=6.0, map_value_max=1.0):
+    def __init__(self, grid_size=(64, 64), max_steps=200, gaussian_sigma=10.0, map_value_max=1.0):
         super().__init__()
         self.nrows, self.ncols = grid_size
         self.grid_size = grid_size
@@ -100,19 +100,19 @@ class GridExploreEnvTeleport(gym.Env):
         # Compute reward as increase in total value
         map_entropy_after = self.map_entropy()
         
-        entropy_reward = 2e2 * (map_entropy_before - map_entropy_after)
+        entropy_reward = 50.0 * (map_entropy_before - map_entropy_after)
         time_reward = -0.5
         closeness_reward = 0.5 * -np.linalg.norm(
             np.array([self.agent_r, self.agent_c]) - np.array([r, c])
         ) / np.sqrt(self.nrows**2 + self.ncols**2)
         
         if self.obstacles[int(r), int(c)] == 1.0:
-            obstacle_penalty = -5.0
+            obstacle_penalty = -6.0
         else:
             obstacle_penalty = 0.0
 
         total_explored = np.sum(self.map * self.free_space / self.map_value_max)
-        done = total_explored / self.ncells_free >= self.map_value_max * 0.85
+        done = total_explored / self.ncells_free >= self.map_value_max * 0.90
         
         reward = entropy_reward + time_reward + closeness_reward + obstacle_penalty
         
