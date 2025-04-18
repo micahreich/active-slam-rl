@@ -17,7 +17,7 @@ if __name__ == "__main__":
     model = PPO.load("/home/dev/workspace/asrl/toy_explore_v2/ppo_grid_explore_cont_cnn.zip")
 
     env = GridExploreEnvTeleport()
-    obs, _ = env.reset(seed=8)
+    obs, _ = env.reset(seed=12)
 
     done, truncated = False, False
     ep_len = 0
@@ -26,6 +26,7 @@ if __name__ == "__main__":
     while not (done or truncated):
         action, _states = model.predict(obs, deterministic=True)
         # action = env.action_space.sample()
+        
         obs, reward, done, truncated, info = env.step(action)
         ep_len += 1
         ep_reward += reward

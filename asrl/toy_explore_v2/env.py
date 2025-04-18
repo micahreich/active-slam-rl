@@ -9,7 +9,7 @@ from scipy.ndimage import gaussian_filter
 class GridExploreEnvTeleport(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 4}
 
-    def __init__(self, grid_size=(64, 64), max_steps=200, gaussian_sigma=5.0, map_value_max=1.0):
+    def __init__(self, grid_size=(64, 64), max_steps=200, gaussian_sigma=6.0, map_value_max=1.0):
         super().__init__()
         self.nrows, self.ncols = grid_size
         self.grid_size = grid_size
@@ -20,17 +20,38 @@ class GridExploreEnvTeleport(gym.Env):
 
         self.action_space = spaces.Box(low=0, high=1, shape=(2,), dtype=np.float32)
         self.observation_space = spaces.Box(low=0, high=map_value_max, shape=(2, self.nrows, self.ncols), dtype=np.float32)
-
+        
         self.reset()
+    
+    # def binary_entropy(self, p: np.ndarray) -> np.ndarray:
+    #     eps = 1e-10  # avoid log(0)
+    #     return -p * np.log2(p + eps) - (1 - p) * np.log2(1 - p + eps)
+
+    def map_entropy(self) -> float:
+        eps = 1e-10
+        entropies = -self.map * np.log2(self.map + eps) - (1 - self.map) * np.log2(1 - self.map + eps)
+
+        return np.mean(entropies)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
-        agent_r, agent_c = np.random.uniform(0, 1, (2,))
-        self.agent_r = agent_r * (self.nrows - 1)
-        self.agent_c = agent_c * (self.ncols - 1)
-            
-        self.map = np.zeros((self.nrows, self.ncols), dtype=np.float32)
+        self.obstacles = np.zeros((self.nrows, self.ncols), dtype=np.float32)        
+        s = 10
+        self.obstacles[s:-s, s:-s] = 1.0
+        self.free_space = 1.0 - self.obstacles
+        self.ncells_free = self.free_space.sum()
+        
+        self.map = self.map_value_max / 2 * np.ones((self.nrows, self.ncols), dtype=np.float32)
+        
+        
+        indices = np.argwhere(self.free_space == 1)
+        agent_r, agent_c = indices[np.random.choice(len(indices))]
+        
+        self.agent_r = agent_r * 1.0
+        self.agent_c = agent_c * 1.0
+                    
+        # self.free_space = np.zeros((self.nrows, self.ncols), dtype=np.float32)
         self.steps = 0
         
         self._stamp_map(self.agent_r, self.agent_c)
@@ -46,13 +67,22 @@ class GridExploreEnvTeleport(gym.Env):
         return np.stack([map_img, curr_pos], axis=0).astype(np.float32)
     
     def _stamp_map(self, r, c):
-        # Create Gaussian centered at (r, c)
+        # Gaussian stamp centered at (r, c)
         stamp = np.zeros((self.nrows, self.ncols), dtype=np.float32)
         stamp[int(r), int(c)] = 1.0
-        stamp = self.gaussian_sigma * 50.0 * gaussian_filter(stamp, sigma=self.gaussian_sigma)
-        
-        # Add and clip the map
-        self.map = np.clip(self.map + stamp, 0, self.map_value_max)
+        stamp = gaussian_filter(stamp, sigma=self.gaussian_sigma)
+
+        # Normalize stamp so its values are in [0, 1]
+        stamp = stamp / np.max(stamp)
+
+        # Shift free-space cells *toward 0* (known free), obstacles *toward 1* (known occupied)
+        self.map = (
+            self.map * (1 - stamp) +               # retain old value where stamp is small
+            stamp * (self.obstacles * 0.0 + self.free_space * 1.0)  # move toward 1 or 0
+        )
+
+        # Clip for safety
+        self.map = np.clip(self.map, 0.0, self.map_value_max)
     
     def step(self, action):
         self.steps += 1
@@ -63,21 +93,28 @@ class GridExploreEnvTeleport(gym.Env):
         c = action[1] * (self.ncols - 1)
         
         # Track old total for reward
-        total_before = np.sum(self.map)
+        map_entropy_before = self.map_entropy()
         
         self._stamp_map(r, c)
 
         # Compute reward as increase in total value
-        total_after = np.sum(self.map)
+        map_entropy_after = self.map_entropy()
         
-        completion_reward = 1e2 * (total_after - total_before) / self.ncells
-        time_reward = -1.0
-        closeness_reward = 1.5 * -np.linalg.norm(
+        entropy_reward = 2e2 * (map_entropy_before - map_entropy_after)
+        time_reward = -0.5
+        closeness_reward = 0.5 * -np.linalg.norm(
             np.array([self.agent_r, self.agent_c]) - np.array([r, c])
         ) / np.sqrt(self.nrows**2 + self.ncols**2)
+        
+        if self.obstacles[int(r), int(c)] == 1.0:
+            obstacle_penalty = -5.0
+        else:
+            obstacle_penalty = 0.0
 
-        done = total_after / self.ncells >= self.map_value_max * 0.85
-        reward = completion_reward + time_reward + closeness_reward
+        total_explored = np.sum(self.map * self.free_space / self.map_value_max)
+        done = total_explored / self.ncells_free >= self.map_value_max * 0.85
+        
+        reward = entropy_reward + time_reward + closeness_reward + obstacle_penalty
         
         self.agent_r = r
         self.agent_c = c
@@ -137,7 +174,7 @@ if __name__ == "__main__":
         if should_step:
             obs, reward, done, truncated, info = env.step(action)
             env.render()
-            print(f"Step: {env.steps}, Reward: {reward:.2f}, Done: {done}")
+            print(f"Step: {env.steps}, Reward: {reward:.2f}, Done: {done}, Entropy: {env.map_entropy():.2f}")
             episode_reward += reward
             should_step = False
     

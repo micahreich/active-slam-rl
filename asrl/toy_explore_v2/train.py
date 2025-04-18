@@ -18,7 +18,7 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 class CustomCNN(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Box, features_dim: int = 128):
         super().__init__(observation_space, features_dim)
-        n_input_channels = observation_space.shape[0]
+        n_input_channels = observation_space.shape[0] + 2
         
         self.cnn = nn.Sequential(
             nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=1),
@@ -34,12 +34,34 @@ class CustomCNN(BaseFeaturesExtractor):
         )
         
         with torch.no_grad():
-            sample = torch.as_tensor(observation_space.sample()[None]).float()
+            sample = torch.as_tensor(observation_space.sample()[None])
+            sample = self.expand_observations(sample).float()
+
             n_flatten = self.cnn(sample).shape[1]
             
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
+    def expand_observations(self, observations: torch.Tensor) -> torch.Tensor:
+        # obs: [B, 1, H, W]
+        B,_,H,W = observations.shape
+        
+        # col coordinate: 0 at left, 1 at right
+        cols = torch.linspace(0, 1, W, device=observations.device) \
+                .view(1, 1, 1, W) \
+                .expand(B, 1, H, W)
+
+        # row coordinate: 0 at top, 1 at bottom
+        rows = torch.linspace(0, 1, H, device=observations.device) \
+                .view(1, 1, H, 1) \
+                .expand(B, 1, H, W)
+                
+        observations = torch.cat([observations, rows, cols], dim=1)   # now 3 channels
+        
+        return observations
+    
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        observations = self.expand_observations(observations)
+        
         return self.linear(self.cnn(observations))
 
 
