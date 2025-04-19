@@ -22,6 +22,8 @@ class GymExploreEnv(gym.Env):
         super().__init__()
         
         self.max_steps = max_steps
+        print(self.max_steps)
+        
         self.percentage_of_map_to_explore = percentage_of_map_to_explore
         
         self.simulator = SimulationEnvironment(
@@ -61,7 +63,9 @@ class GymExploreEnv(gym.Env):
     
     def step(self, action):
         entropy_before = self.simulator.og_map.entropy
+        
         traversed_path = self.simulator.step(action)
+        
         entropy_after = self.simulator.og_map.entropy
         
         if traversed_path is None:
@@ -69,16 +73,16 @@ class GymExploreEnv(gym.Env):
             exploration_reward = -1.0
         else:
             pathlength_reward = -0.05 * len(traversed_path) * self.simulator.og_map.resolution
-            exploration_reward = 50.0 * (entropy_before - entropy_after)
+            exploration_reward = 200.0 * (entropy_before - entropy_after)
         
         # Check if the agent has explored enough of the map
         done = self.simulator.og_map.free_area_m2 / self.simulator.array_map.free_area_m2 > self.percentage_of_map_to_explore
         
         # Check if the episode has reached its maximum length
-        truncated = False
-        
-        time_reward = -0.1
-        reward = exploration_reward + time_reward + pathlength_reward
+        truncated = self.simulator.timesteps_elapsed >= self.max_steps
+                
+        time_reward = -0.5
+        reward = exploration_reward + time_reward #+ pathlength_reward
         
         info = {
             "traversed_path": traversed_path,
@@ -102,6 +106,7 @@ class GymExploreEnv(gym.Env):
         # Set up figure and axes
         if self.fig is None:
             plt.ion()
+            
             self.fig, self.ax = plt.subplots()
             self.im = self.ax.imshow(
                 prob_map,
@@ -144,6 +149,8 @@ class GymExploreEnv(gym.Env):
 
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
+        
+        print("huh")
         
         # prob_map, normalized_pose = self.simulator.get_observation()
         # pose = normalized_pose * np.array([self.simulator.og_map.width_m,

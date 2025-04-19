@@ -34,8 +34,8 @@ class SimulationEnvironment:
         self.og_map = OccupancyGridMapper(og_map_resolution,
                                           width_m=self.array_map.width_m,
                                           height_m=self.array_map.height_m,
-                                          p_hit=0.6,
-                                          p_miss=0.4,
+                                          p_hit=0.8,
+                                          p_miss=0.2,
                                           max_height_px=og_map_shape[-2],
                                           max_width_px=og_map_shape[-1])
     
@@ -61,6 +61,8 @@ class SimulationEnvironment:
         self.og_map.process_scans(self.pose, initial_scan, n_rays_per_scan)
     
     def step(self, action: NDArray) -> None:
+        self.timesteps_elapsed += 1
+
         r_goal = int( action[0] * (self.og_map.height_px - 1) )
         c_goal = int( action[1] * (self.og_map.width_px - 1) )
         
@@ -97,7 +99,6 @@ class SimulationEnvironment:
         
         # Update the agent's pose
         self.pose = traversed_poses_xy_m[-1]
-        self.timesteps_elapsed += 1
         
         return traversed_poses_xy_m
 

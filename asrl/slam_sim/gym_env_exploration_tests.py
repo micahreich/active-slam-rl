@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     env = GymExploreEnv(
-        max_steps=150,
+        max_steps=100,
         percentage_of_map_to_explore=0.95,
         map_name="box2",
         og_map_resolution=0.2,

@@ -19,7 +19,7 @@ class CustomCNN(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Box, features_dim: int = 128):
         super().__init__(observation_space, features_dim)
         n_obs_channels, H, W = observation_space.shape
-        n_input_channels = n_obs_channels + 2
+        n_input_channels = n_obs_channels
         
         # col coordinate: 0 at left, 1 at right
         row_coords = torch.linspace(0, 1, H).view(1, 1, H, 1).expand(1, 1, H, W)
@@ -29,7 +29,7 @@ class CustomCNN(BaseFeaturesExtractor):
         self.register_buffer("col_coords", col_coords)
         
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(n_input_channels, 32, kernel_size=5, stride=2, padding=2),
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
@@ -50,11 +50,13 @@ class CustomCNN(BaseFeaturesExtractor):
         self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
 
     def expand_observations(self, observations: torch.Tensor) -> torch.Tensor:
-        B = observations.shape[0]
+        # B = observations.shape[0]
 
-        rows = self.row_coords.expand(B, -1, -1, -1)
-        cols = self.col_coords.expand(B, -1, -1, -1)
-        return torch.cat([observations, rows, cols], dim=1)
+        # rows = self.row_coords.expand(B, -1, -1, -1)
+        # cols = self.col_coords.expand(B, -1, -1, -1)
+        # return torch.cat([observations, rows, cols], dim=1)
+        
+        return observations
     
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
         observations = self.expand_observations(observations)
@@ -74,17 +76,17 @@ def train(cfg: dict, total_timesteps):
 
     policy_kwargs = dict(
         activation_fn=nn.Tanh,
-        net_arch=[128, 128],
+        net_arch=[256, 256],
         share_features_extractor=True,
         features_extractor_class=CustomCNN,
-        features_extractor_kwargs=dict(features_dim=128),
+        features_extractor_kwargs=dict(features_dim=256),
     )
     
     model = PPO("CnnPolicy", vec_env, **cfg, verbose=1, policy_kwargs=policy_kwargs)
     print(model.policy)
     
     model.learn(total_timesteps, log_interval=1, progress_bar=True)
-    model.save("ppo_slam_explore")
+    model.save("ppo_slam_explore33")
 
 
 if __name__ == "__main__":
