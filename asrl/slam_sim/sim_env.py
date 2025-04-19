@@ -8,247 +8,158 @@ import matplotlib.pyplot as plt
 from asrl.ogmapping.og_map import OccupancyGridMapper
 from asrl.slam_sim.array_map import ArrayMap
 from asrl.slam_sim import MAPS_DIRECTORY
+from asrl.ogmapping.utils import log_odds
+from skimage.graph import route_through_array
 
 
 class SimulationEnvironment:
     def __init__(self,
                  map_name,
                  og_map_resolution,
-                 omega,
-                 v,
                  dt,
-                 travel_cut_short_dist_m,
-                 og_map_shape):
-        self.pose = np.zeros(3)  # Initial pose
-        self._omega = omega  # Angular velocity
-        self._v = v  # Linear velocity
+                 og_map_shape=(None, None),
+                 np_random=np.random):
         self._dt = dt  # Time step
-        self._travel_cut_short_dist_m = travel_cut_short_dist_m
-        self.timesteps_elapsed = 0
-        self.envsteps_elapsed = 0
         
-        self.r_max_m = 8.0
-        
+        self._r_min_m = 0.0
+        self._r_max_m = 10.0
+        self._range_noise_m = 0.0
+
         map_name, _ = os.path.splitext(map_name)
         map_fpath = os.path.join(MAPS_DIRECTORY, f"{map_name}.txt")
         
-        self.array_map = ArrayMap(map_fpath)
+        self.array_map = ArrayMap(map_fpath,
+                                  np_random=np_random)
+        
         self.og_map = OccupancyGridMapper(og_map_resolution,
                                           width_m=self.array_map.width_m,
-                                          height_m=self.array_map.width_m,
+                                          height_m=self.array_map.height_m,
+                                          p_hit=0.6,
+                                          p_miss=0.4,
                                           max_height_px=og_map_shape[-2],
                                           max_width_px=og_map_shape[-1])
     
-    @property
-    def time_elapsed(self) -> float:
-        """
-        Get the total time elapsed in the simulation.
-        """
-        return self.timesteps_elapsed * self._dt
-    
     def reset(self, pose=None) -> Tuple[NDArray, NDArray]:
-        """
-        Reset the simulation environment to a random pose in free space and reset the occupancy grid map.
-        """
         self.timesteps_elapsed = 0
-        self.envsteps_elapsed = 0
         
-        # if pose is None:
-        #     pose = np.zeros((3,))
-        #     pose[:2] = self.array_map.sample_free_space(output_type='xy_m')
-        #     # pose[2] = np.random.uniform(0, 2 * np.pi)
-        #     pose[2] = 0.0
-        pose = np.array([2.0, 2.0, 0.0])
-        
-        self.pose = pose
+        if pose is None:
+            coord_xy_m = self.array_map.sample_free_space(output_type='xy_m')
+            self.pose = np.array([coord_xy_m[0], coord_xy_m[1], 0.0])
+        else:
+            self.pose = pose
+            
         self.og_map.reset()
         
         # Perform a raycast to update the occupancy grid map just with the initial pose
-        initial_scan = self.array_map.raycast_in_map(self.pose,
-                                                     r_min_m=self.og_map.resolution,
-                                                     r_max_m=self.r_max_m)
-        self.og_map.process_scan(self.pose, initial_scan)
+        initial_scan, n_rays_per_scan = self.array_map.raycast_in_map(
+            self.pose,
+            r_min_m=self._r_min_m,
+            r_max_m=self._r_max_m,
+            range_noise_m=self._range_noise_m,
+        )
         
-        return self.get_observation()
-    
-    # def _process_og_map(self, og_map: NDArray) -> NDArray:
-    #     p_free_thresh = 0.1
-    #     p_occ_thresh = 1 - p_free_thresh
-        
-    #     l_free_thresh = np.log(p_free_thresh / (1-p_free_thresh))
-    #     l_occ_thresh = np.log(p_occ_thresh / (1-p_occ_thresh))
-        
-    #     occupied_cells = og_map > l_occ_thresh
-    #     free_cells = og_map < l_free_thresh
-        
-    #     processed_map = np.where(occupied_cells, 0, -1)
-    #     processed_map[free_cells] = 1
-        
-    #     return processed_map.astype(np.int8)
-    
-    def _process_og_map(self, og_map: OccupancyGridMapper) -> NDArray:
-        processed_map = og_map.to_prob_map()
-        processed_map = np.clip(processed_map * 255, 0, 255).astype(np.uint8)
-
-        return processed_map
-        
-    def get_observation(self) -> Tuple[NDArray, NDArray]:
-        """
-        Get the current observation of the environment.
-        
-        Returns:
-            Tuple[NDArray, NDArray]: The current pose and the occupancy grid map, both normalized to [0, 1];
-            based on the map size for the pose and the map is converted to probabilities from log-odds.
-        """
-        normalized_pose = np.zeros(3)
-        normalized_pose[0] = self.pose[0] / self.og_map.width_m
-        normalized_pose[1] = self.pose[1] / self.og_map.height_m
-        normalized_pose[2] = wrap_0_2pi(self.pose[2]) / (2 * np.pi)
-        
-        # prob_map = self.og_map.to_prob_map()
-        # prob_map = np.clip(prob_map * 255, 0, 255).astype(np.uint8)
-        # prob_map_h, prob_map_w = self.og_map.shape
-        processed_map = self._process_og_map(self.og_map)
-        
-        return processed_map[None, ...], normalized_pose
+        self.og_map.process_scans(self.pose, initial_scan, n_rays_per_scan)
     
     def step(self, action: NDArray) -> None:
-        """
-        Advances the agent's state by executing the given action.
-
-        The action consists of a relative angle (in radians) and a distance.
-        The angle is interpreted in the agent's **body frame** — i.e., relative to the agent's current heading.
-        The agent attempts to move along this direction for the specified distance, unless obstructed by the map.
-
-        Parameters
-        ----------
-        action : NDArray
-            A 2-element array `[angle, distance]`
-
-        Notes
-        -----
-        - The agent's actual travel distance is capped by obstacles in the environment (via `max_travel_distance_along_ray`)
-        and may be reduced by `travel_cut_short_dist_m`.
-        - At each intermediate pose along the movement path, a raycast is performed and used to update the occupancy grid map.
-        - The agent's final pose after movement is set to the last pose along the traveled ray.
-        """
-        angle, distance = action
-        x0, y0, theta0 = self.pose
-        angle = angle_wrap(angle, mode='-pi:pi')
+        r_goal = int( action[0] * (self.og_map.height_px - 1) )
+        c_goal = int( action[1] * (self.og_map.width_px - 1) )
         
-        max_travel_distance = self.array_map.max_travel_distance_along_ray(self.pose[:2], self.pose[2] + angle)
-        travel_distance = max(0, min(max_travel_distance - self._travel_cut_short_dist_m, distance))
-        distance_from_env = max_travel_distance - distance
+        # Decide if agent can go here or not based on the occupancy grid map        
+        if self.og_map.grid[r_goal, c_goal] >= log_odds(0.4):
+            # Wants to move into occupied or unknown space
+            return None
         
-        # # Find occupancy at the ending position
-        # ray = np.array([
-        #     np.cos(theta0 + angle),
-        #     np.sin(theta0 + angle)
-        # ])
-        
-        # desired_end_position = self.pose[:2] + ray * distance
-        # ogmap_i, ogmap_j = self.og_map._indexer.xy_m_to_ij(desired_end_position[0], desired_end_position[1])
-        # occupancy_log_odds_end_position = self.og_map.grid[ogmap_i, ogmap_j]
-        
-        # Determine poses while moving straight
-        traveled_poses = self.travel_along_ray(angle, travel_distance)
-        timesteps_elapsed = len(traveled_poses)
+        r_curr, c_curr = self.og_map.indexer.xy_m_to_ij(self.pose[:2])
 
-        if timesteps_elapsed > 0:
-            scans = self.array_map.raycast_in_map(traveled_poses,
-                                                  r_min_m=self.og_map.resolution,
-                                                  r_max_m=self.r_max_m)
-            timesteps_elapsed = len(traveled_poses)
+        # Move to the new position by planning a path
+        prob_grid = self.og_map.to_prob_map()
+                
+        path_ij, cost = route_through_array(
+            array=prob_grid,
+            start=(r_curr, c_curr),
+            end=(r_goal, c_goal),
+            fully_connected=True,
+            geometric=True
+        )
+
+        traversed_poses_xy_m = np.zeros((len(path_ij), 3))
+        traversed_poses_xy_m[:, :2] = self.og_map.indexer.ij_to_xy_m(np.asarray(path_ij))
+
+        # Update the occupancy grid map with scans along the path
+        scans, n_rays_per_scan = self.array_map.raycast_in_map(
+            traversed_poses_xy_m,
+            r_min_m=self._r_min_m,
+            r_max_m=self._r_max_m,
+            range_noise_m=self._range_noise_m,
+        )
+        
+        self.og_map.process_scans(traversed_poses_xy_m, scans, n_rays_per_scan)
+        
+        # Update the agent's pose
+        self.pose = traversed_poses_xy_m[-1]
+        self.timesteps_elapsed += 1
+        
+        return traversed_poses_xy_m
+
+    def visualize_map_and_agent(self, fig, ax,
+                                traversed_poses = None):
+        ax.clear()
+        
+        grid_prob = self.og_map.to_prob_map()
+        extent = [0, self.og_map.width_m, 0, self.og_map.height_m]
+        
+        grid_prob_img = ax.imshow(
+            grid_prob,
+            cmap='gray_r', interpolation='nearest',
+            origin='upper', extent=extent
+        )
+        
+        agent = ax.scatter([self.pose[0]], [self.pose[1]], c='red', s=100, marker='x')
+        
+        if traversed_poses is not None:
+            path = ax.plot(
+                traversed_poses[:, 0], traversed_poses[:, 1],
+                color='blue', linewidth=2, label='Path'
+            )
+
+        xticks = np.arange(0, self.og_map.width_m, 1.0)
+        yticks = np.arange(0, self.og_map.height_m, 1.0)
+        ax.set_xticks(xticks)
+        ax.set_yticks(yticks)
+
+        plt.title(f'Occupancy grid map (H={self.og_map.entropy:.4f})')
+        
+        return grid_prob_img
+        
+
+def test1():
+    env = SimulationEnvironment(
+        map_name='box2',
+        og_map_resolution=0.2,
+        dt=0.1,
+    )
+    
+    env.reset()
+    
+    fig, ax = plt.subplots()
+    
+    canvas = env.visualize_map_and_agent(fig, ax)
+    fig.colorbar(canvas, ax=ax, label='Probability')
+    
+    def on_click(event):
+        if event.inaxes:
+            r_goal_n = 1.0 - event.ydata / env.og_map.height_m
+            c_goal_n = event.xdata / env.og_map.width_m
             
-            for pose, scan in zip(traveled_poses, scans):
-                self.og_map.process_scan(pose, scan)
+            print(f"Clicked at: ({r_goal_n:.2f}, {c_goal_n:.2f})")
             
-            self.pose = traveled_poses[-1]
-        else:
-            timesteps_elapsed = 1
-            
-        self.timesteps_elapsed += timesteps_elapsed
-        self.envsteps_elapsed += 1
-        
-        return self.get_observation(), timesteps_elapsed, distance_from_env
+            traversed_poses = env.step(np.array([r_goal_n, c_goal_n]))
+            env.visualize_map_and_agent(fig, ax, traversed_poses)
+            fig.canvas.draw_idle()
     
-    def travel_along_ray(self, angle: NDArray, distance: float) -> NDArray:
-        """
-        Travel along a ray for a given distance.
-        
-        Args:
-            angle (NDArray): The angle to turn before traveling.
-            distance (float): The distance to travel along the ray.
-        
-        Returns:
-            NDArray: The new position after traveling along the ray.
-        """
-        x0, y0, theta0 = self.pose
-        
-        distance_eps_m = 1e-5
+    fig.canvas.mpl_connect('button_press_event', on_click)
     
-        # Determine poses while moving straight
-        if abs(distance) < distance_eps_m:
-            return np.empty((0, 3))
-        
-        ray = np.array([
-            np.cos(theta0 + angle),
-            np.sin(theta0 + angle)
-        ])
-        
-        T = distance / self._v
-        N = int(np.ceil(T / self._dt))
-        t = np.linspace(self._dt, N * self._dt, N)
-        ds = np.minimum(self._v * t, distance)
-        
-        poses_straight = np.zeros((N, 3))
-        poses_straight[:, :2] = self.pose[:2] + ray * ds[:, None]
-        poses_straight[:, 2] = theta0
-        
-        return poses_straight
-
-def plot_poses(poses, scale=0.2, ax=None):
-    """
-    Plot 2D poses (x, y, theta) in the plane.
-
-    Args:
-        poses: (B, 3) array of [x, y, theta] poses
-        style: 'arrow', 'circle', or 'frame'
-        scale: length of heading indicator
-        ax: matplotlib axis (optional)
-    """    
-    if ax is None:
-        fig, ax = plt.subplots()
-        ax.set_aspect('equal')
-
-    for xi, yi, ti in poses:
-        circle = plt.Circle((xi, yi), radius=scale * 0.5, edgecolor='black', facecolor='none')
-        ax.add_patch(circle)
-        ax.plot([xi, xi + scale * 0.5 * np.cos(ti)],
-                [yi, yi + scale * 0.5 * np.sin(ti)], color='black')
-
-    ax.set_xlabel('x')
-    ax.set_ylabel('y')
-    ax.grid(True)
+    plt.show()
     
-    return ax
-
-
-def test_travel_along_ray():
-    env = SimulationEnvironment('/home/dev/workspace/asrl/maps/floorplan1.txt',
-                                og_map_resolution=0.1,
-                                omega=1.0,
-                                v=1.0,
-                                dt=0.1,
-                                travel_cut_short_dist_m=0.1,
-                                og_map_shape=(256, 256))
-    env.pose = np.array([2.0, 1.0, 0.0])  # Initial pose
-    angle = -np.pi / 4  # 45 degrees
-    distance = 1.0
-    poses = env.travel_along_ray(angle, distance)
-    
-    print(f"Traveled poses: {poses}")
-
-
 if __name__ == "__main__":
-    test_travel_along_ray()
+    test1()

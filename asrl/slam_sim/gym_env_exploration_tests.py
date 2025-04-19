@@ -1,27 +1,10 @@
 import numpy as np
 import time
 from asrl.slam_sim.gym_env_exploration import GymExploreEnv
-import sys
-import termios
-import tty
-import select
 import time
 import gymnasium as gym
+import matplotlib.pyplot as plt
 
-
-def get_key(timeout=0.1):
-    """Non-blocking keypress read (single character)"""
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-
-    try:
-        tty.setcbreak(fd)
-        rlist, _, _ = select.select([fd], [], [], timeout)
-        if rlist:
-            return sys.stdin.read(1)
-        return None
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 if __name__ == "__main__":
     env = GymExploreEnv(
@@ -29,10 +12,7 @@ if __name__ == "__main__":
         percentage_of_map_to_explore=0.95,
         map_name="box2",
         og_map_resolution=0.2,
-        omega=1.0,
-        v=1.0,
         dt=0.2,
-        travel_cut_short_dist_m=0.1,
         og_map_shape=(1, 128, 128),
         render_mode="human",
     )
@@ -41,35 +21,42 @@ if __name__ == "__main__":
     obs, info = env.reset()
     env.render()
     
-    d = 2.0
-    key_to_action = {
-        'w': np.array([np.pi/2, d]),
-        'a': np.array([np.pi, d]),
-        's': np.array([-np.pi/2, d]),
-        'd': np.array([0.0, d]),
-    }
-    
     episode_reward = 0.0
     episode = 1
     
-    try:
-        while True:
-            key = input("")
-            if key in key_to_action:
-                action = key_to_action[key]
-                obs, reward, terminated, truncated, info = env.step(action)
-                episode_reward += reward
-                
-                print(f"{episode} - Reward: {reward}, Episode Reward: {episode_reward}")
+    def on_key(event):
+        if event.key == 'q':
+            print("Quitting...")
+            env.close()
+            plt.close('all')  # Close the figure window
+    
+    def on_click(event):
+        global episode_reward, episode
+        
+        if event.inaxes:
+            r_goal_n = 1.0 - event.ydata / env.simulator.og_map.height_m
+            c_goal_n = event.xdata / env.simulator.og_map.width_m
+            
+            # print(f"Clicked at: ({r_goal_n:.2f}, {c_goal_n:.2f})")
+            
+            _, reward, done, truncated, info = env.step(np.array([r_goal_n, c_goal_n]))
+            episode_reward += reward
 
-                if terminated or truncated:
-                    print(f"\tEpisode {episode} finished; terminated? {terminated}, truncated? {truncated}, envsteps: {env.simulator.envsteps_elapsed}")
-                    obs, info = env.reset()
-                    episode_reward = 0.0
-                    episode += 1
-                    
+            print(f"{episode} - Reward: {reward}, Episode Reward: {episode_reward}, Done? {done}, Truncated? {truncated}, Steps {env.simulator.timesteps_elapsed}")
+            print(f"\texploration_reward: {info['exploration_reward']}, time_reward: {info['time_reward']}, pathlength_reward: {info['pathlength_reward']}")
+            
+            if done or truncated:
+                obs, info = env.reset()
+                
+                episode_reward = 0.0
+                episode += 1
+            
             env.render()
-    except KeyboardInterrupt:
-        print("\nExiting.")
-    finally:
-        env.close()
+    
+    env.fig.canvas.mpl_connect('button_press_event', on_click)
+    env.fig.canvas.mpl_connect('key_press_event', on_key)
+    
+    # Run GUI event loop
+    while env.fig is not None and plt.fignum_exists(env.fig.number):
+        plt.pause(0.1)
+        

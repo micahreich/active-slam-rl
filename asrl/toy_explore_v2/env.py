@@ -11,6 +11,7 @@ class GridExploreEnvTeleport(gym.Env):
 
     def __init__(self, grid_size=(64, 64), max_steps=200, gaussian_sigma=10.0, map_value_max=1.0):
         super().__init__()
+
         self.nrows, self.ncols = grid_size
         self.grid_size = grid_size
         self.ncells = self.nrows * self.ncols
@@ -46,7 +47,7 @@ class GridExploreEnvTeleport(gym.Env):
         
         
         indices = np.argwhere(self.free_space == 1)
-        agent_r, agent_c = indices[np.random.choice(len(indices))]
+        agent_r, agent_c = indices[self.np_random.choice(len(indices))]
         
         self.agent_r = agent_r * 1.0
         self.agent_c = agent_c * 1.0

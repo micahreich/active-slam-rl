@@ -2,12 +2,11 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
-import spatialmath
 from numpy.typing import NDArray
 from scipy.ndimage import binary_dilation
-from scipy.spatial import KDTree
-
+from spatialmath.base import *
 from asrl.ogmapping.og_map import ArrayIndexer
+from asrl.ogmapping.utils import transform_points
 
 
 def create_grid_xy(x_range, y_range, step):
@@ -55,7 +54,7 @@ def create_grid_xy(x_range, y_range, step):
 
 
 class ArrayMap:
-    def __init__(self, arr: str, resolution=None, verbose=False):
+    def __init__(self, arr: str, resolution=None, verbose=False, np_random=np.random):
         """
         ArrayMap class to build a 2D map with open3d geometry from a 2D numpy idealized
         occupancy grid.
@@ -73,7 +72,10 @@ class ArrayMap:
         if os.path.isfile(arr):
             with open(arr, 'r') as f:
                 lines = f.readlines()
-                resolution = float(lines[0].strip())
+                
+                if resolution is None:
+                    resolution = float(lines[0].strip())
+                    
                 lines = lines[1:]
         else:
             lines = arr.strip().splitlines()
@@ -105,9 +107,7 @@ class ArrayMap:
         
         self._free_space_ij = np.argwhere(self._free_space == 1)
         self._free_space_xy_m = self._indexer.ij_to_xy_m(self._free_space_ij)
-        
-        self.free_space_xy_m_kdtree = KDTree(self._free_space_xy_m)
-        
+            
         self.free_area_m2 = len(self._free_space_ij) * (self.resolution ** 2)
         
         # Create the open3d geometries for visualization and raycasting
@@ -115,6 +115,8 @@ class ArrayMap:
         self._raycasting_scene = o3d.t.geometry.RaycastingScene()
         for cube in self._wall_o3d_geometries:
             self._raycasting_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(cube))
+            
+        self.np_random = np_random
     
     def _map_from_lines(self, lines: list[str]):
         # Parse character legend
@@ -180,66 +182,26 @@ class ArrayMap:
         cube_geometries = list(map(create_cube, wall_indices_ij))
         return cube_geometries
     
-    def query_closest_free_point(self, point_xy_m: NDArray):
-        """
-        Query the closest free point in the map to a given point in meters.
-
-        Parameters
-        ----------
-        point_xy_m : NDArray
-            The point in meters to query.
-
-        Returns
-        -------
-        NDArray
-            The closest free point in the map.
-        """
-        dist, index = self.free_space_xy_m_kdtree.query(point_xy_m)
-        return dist, self._free_space_xy_m[index]
-    
     def sample_free_space(self, output_type='xy_m'):
         assert output_type in ['ij', 'xy_m', 'xy_r'], f"Invalid output type: {output_type}"
-        
-        index = np.random.randint(self._free_space_ij.shape[0])
+            
+        index = self.np_random.integers(self._free_space_ij.shape[0])
         free_space_point_ij = self._free_space_ij[index]
         
         if output_type == 'ij': return free_space_point_ij
         if output_type == 'xy_m': return self._indexer.ij_to_xy_m(free_space_point_ij)
         if output_type == 'xy_r': return self._indexer.ij_to_xy_r(free_space_point_ij)
     
-    def max_travel_distance_along_ray(self, position: NDArray, angle_W: NDArray) -> float:
-        """
-        Calculate the maximum travel distance along a ray from a given pose in the map.
-
-        Parameters
-        ----------
-        position : NDArray
-            The position of the ray in the map (x, y) in meters.
-        angle_W : NDArray
-            The direction of the ray in radians with respect to the world frame.
-
-        Returns
-        -------
-        float
-            The maximum travel distance along the ray before hitting an obstacle.
-        """
-        raycast_vectors = np.zeros((1, 6), dtype=np.float32)
-        raycast_vectors[0, 3] = np.cos(angle_W)
-        raycast_vectors[0, 4] = np.sin(angle_W)
-        raycast_vectors[0, :2] = position
-        
-        out = self._raycasting_scene.cast_rays(raycast_vectors)
-        t_hit = out['t_hit'].numpy()
-        
-        return t_hit[0]
-    
     def raycast_in_map(self,
                        poses: NDArray,
-                       r_min_m: float = 0.1,
-                       r_max_m: float = np.inf,
+                       r_min_m: float = 0.0,
+                       r_max_m: float = 1e2,
                        angle_range_deg: float = [-180, 180],
                        horizontal_resolution_deg: float = 2.0,
                        range_noise_m: float = 0.01):
+        assert r_min_m >= 0.0 and r_max_m < np.inf and r_min_m < r_max_m, \
+            f"Invalid range: {r_min_m=}, {r_max_m=}"
+        
         is_batched = poses.ndim == 2
         if not is_batched:
             poses = poses[None, :]
@@ -260,31 +222,30 @@ class ArrayMap:
         
         # Perform raycasting
         out = self._raycasting_scene.cast_rays(raycast_vectors)
-        t_hit = np.minimum(out['t_hit'].numpy(), r_max_m)
-        
-        mask_valid = np.reshape((r_min_m <= t_hit) & np.isfinite(t_hit), (B, n_rays))
-        
+        t_hit = np.clip(out['t_hit'].numpy(), r_min_m, r_max_m)
+                
         sigma = range_noise_m + 0.001 * t_hit  # base noise + 1mm per meter
-        noise = np.random.normal(loc=0.0, scale=sigma)
+        noise = self.np_random.normal(loc=0.0, scale=sigma)
         t_hit += noise
         
-        # Rotate points into body frame
-        B_R_W_array = np.array([spatialmath.base.rot2(pose[2]).T for pose in poses])
-        points_b_W = np.reshape(t_hit[:, None] * raycast_vectors[:, 3:5], (B, n_rays, 2))
-        points_b_B = points_b_W @ B_R_W_array.transpose(0, 2, 1)
+        scans_W_WP_2d = np.reshape(
+            raycast_vectors[:, 0:2] + t_hit[:, None] * raycast_vectors[:, 3:5],
+            newshape=(B, n_rays, 2) )
         
-        result = [
-            points_b_B[i, ...][mask_valid[i]] for i in range(B)
-        ]
+        # Rotate points into body frame
+        B_T_W = np.stack([trinv2(xyt2tr(p)) for p in poses])
+        scans_B_BP_2d = transform_points(B_T_W, scans_W_WP_2d)        
+        
+        assert scans_B_BP_2d.shape == (B, n_rays, 2)
         
         if not is_batched:
-            return result[0]
-
-        return result
+            return scans_B_BP_2d[0], n_rays
+        
+        return scans_B_BP_2d, n_rays
     
 
 if __name__ == "__main__":
-    m = ArrayMap('/home/dev/workspace/asrl/maps/box2.txt')
+    m = ArrayMap('/home/dev/workspace/asrl/maps/box2.txt', resolution=1.0)
     
     coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
     grid = create_grid_xy(
@@ -294,14 +255,13 @@ if __name__ == "__main__":
     )
     o3d.visualization.draw_geometries(m._wall_o3d_geometries + [coordinate_frame, grid])
     
-    # pose = np.array([0.5 + 1.5, 0.5 + 2.5, np.deg2rad(10)])
-    # points = m.raycast_in_map(
-    #     pose,
-    #     range_noise_std_m=0.
-    # )
-    
-    # fig, ax = plt.subplots(1,1, figsize=(8, 8))
-    # ax.scatter(points[:, 0], points[:, 1], c='r', s=1, label='Hit Points')
-    # ax.scatter([0], [0], c='b', s=20, marker='x', label='Robot')
-    # ax.set_aspect('equal')
-    # plt.show()
+    pose = np.array([1.5, 2.5, np.deg2rad(0)])
+    points, n_rays = m.raycast_in_map(
+        pose,
+    )
+
+    fig, ax = plt.subplots(1,1, figsize=(8, 8))
+    ax.scatter(points[:, 0], points[:, 1], c='r', s=1, label='Hit Points')
+    ax.scatter([0], [0], c='b', s=20, marker='x', label='Robot')
+    ax.set_aspect('equal')
+    plt.show()

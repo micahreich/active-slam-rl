@@ -16,159 +16,181 @@ class GymExploreEnv(gym.Env):
                  percentage_of_map_to_explore,
                  map_name,
                  og_map_resolution,
-                 omega,
-                 v,
                  dt,
-                 travel_cut_short_dist_m,
                  og_map_shape,
                  render_mode=None):
         super().__init__()
         
         self.episode_maxlen_steps = episode_maxlen_steps
         self.percentage_of_map_to_explore = percentage_of_map_to_explore
-
-        # Define observation space; positions are normalized to [0, 1] by dividing by the occupancy grid map size
-        # and the angle is normalized to [0, 1] by dividing by 2 * pi
-        self.observation_space = spaces.Dict({
-            "og_map": spaces.Box(
-                low=0.0, high=1.0, shape=og_map_shape, dtype=np.float32
-            ),
-            "pose": spaces.Box(
-                low=0.0, high=1.0, shape=(3,), dtype=np.float32
-            ),
-        })
-
-        # Define action space as (angle, distance); angle is normalized to [-pi, pi]rad and distance are
-        # limited to [0, max]m
-        self.action_space = spaces.Box(
-            low=np.array([-np.pi, 0.0], dtype=np.float32),
-            high=np.array([np.pi, 10.0], dtype=np.float32),
-            dtype=np.float32
-        )
         
         self.simulator = SimulationEnvironment(
             map_name,
             og_map_resolution,
-            omega,
-            v,
             dt,
-            travel_cut_short_dist_m,
-            og_map_shape
+            og_map_shape,
+            self.np_random
         )
         
-        self.prev_free_area = 0
-        self.timesteps_elapsed = 0
+        self.action_space = spaces.Box(low=0, high=1, shape=(2,), dtype=np.float32)
+        self.observation_space = spaces.Box(
+            low=0.0,
+            high=1.0,
+            shape=(2, self.simulator.og_map.height_px, self.simulator.og_map.width_px),
+            dtype=np.float32
+        )
+        
         self.render_mode = render_mode
+        self.fig, self.ax = None, None
+    
+    def _to_obs(self):
+        prob_map = self.simulator.og_map.to_prob_map()
         
-        self.fig = None
+        agent_r, agent_c = self.simulator.og_map.indexer.xy_m_to_ij(self.simulator.pose[:2])
+        agent_position_map = np.zeros_like(prob_map)
+        agent_position_map[agent_r, agent_c] = 1.0
+        
+        return np.stack([prob_map, agent_position_map], axis=0)
     
-    def _to_gym_observation(self, obs):
-        """
-        Convert the observation from the simulator to the gym format.
-        """
-        grid, pose = obs
-        return {
-            "og_map": grid,
-            "pose": pose
-        }
-    
-    def reset(self, seed=None, options={'pose': None}):
+    def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        obs = self.simulator.reset(options['pose'])
-        info = {}
         
-        self.prev_free_area = 0.0
-        self.timesteps_elapsed = 0
+        self.simulator.reset()
         
-        return self._to_gym_observation(obs), info
+        return self._to_obs(), {}
     
     def step(self, action):
-        obs, timesteps_elapsed, dist_from_env = self.simulator.step(action)
-        free_area = self.simulator.og_map.free_area_m2
+        entropy_before = self.simulator.og_map.entropy
+        traversed_path = self.simulator.step(action)
+        entropy_after = self.simulator.og_map.entropy
         
-        delta_area = free_area - self.prev_free_area
-        map_area = self.simulator.array_map.free_area_m2
-                
-        coverage_reward = max(0.0, delta_area / map_area)
-        fast_reward = -1 #* self.simulator._dt * timesteps_elapsed
-        # safety_reward = (np.abs(dist_from_env) * dist_from_env) / max(self.simulator.array_map.height_m,
-        #                                                               self.simulator.array_map.width_m)
-    
-        reward = 10 * coverage_reward + 0.1 * fast_reward
+        if traversed_path is None:
+            pathlength_reward = 0.0
+            exploration_reward = -5.0
+        else:
+            pathlength_reward = -0.05 * len(traversed_path) * self.simulator.og_map.resolution
+            exploration_reward = 50.0 * (entropy_before - entropy_after)
         
-        done = free_area / map_area > self.percentage_of_map_to_explore
-        truncated = self.simulator.envsteps_elapsed >= self.episode_maxlen_steps
+        # Check if the agent has explored enough of the map
+        done = self.simulator.og_map.free_area_m2 / self.simulator.array_map.free_area_m2 > self.percentage_of_map_to_explore
         
-        self.prev_free_area = free_area
+        # Check if the episode has reached its maximum length
+        truncated = False
         
-        return self._to_gym_observation(obs), reward, done, truncated, {}
+        time_reward = -0.1
+        reward = exploration_reward + time_reward + pathlength_reward
+        
+        info = {
+            "traversed_path": traversed_path,
+            "exploration_reward": exploration_reward,
+            "time_reward": time_reward,
+            "pathlength_reward": pathlength_reward,
+        }
+        
+        return self._to_obs(), reward, done, truncated, info
     
     def render(self):
         if self.render_mode != "human":
             return
         
-        prob_map, normalized_pose = self.simulator.get_observation()
-        pose = normalized_pose * np.array([self.simulator.og_map.width_m,
-                                           self.simulator.og_map.height_m,
-                                           2*np.pi])
+        prob_map = self.simulator.og_map.to_prob_map()
+        extent = [0, self.simulator.og_map.width_m, 0, self.simulator.og_map.height_m]
+        x, y, theta = self.simulator.pose
         
-        height = self.simulator.og_map.height_px
-        width = self.simulator.og_map.width_px
-        res = self.simulator.og_map.resolution
-        extent = [0, width * res, 0, height * res]
+        R = 0.5
         
+        # Set up figure and axes
         if self.fig is None:
             plt.ion()
             self.fig, self.ax = plt.subplots()
+            self.im = self.ax.imshow(
+                prob_map,
+                cmap='gray_r',
+                interpolation='nearest',
+                origin='upper',
+                extent=extent,
+                vmin=0, vmax=1  # explicitly set range
+            )
             
-            self.im = self.ax.imshow(prob_map[0], vmin=0, vmax=255, cmap='gray_r',
-                                 interpolation='nearest', origin='upper', extent=extent)
-
-            self.pose_circle = plt.Circle((0, 0), radius=1.0, edgecolor='blue', facecolor='none')
-            self.pose_line, = self.ax.plot([], [], color='blue')
+            # Add colorbar only once
+            self.colorbar = self.fig.colorbar(self.im, ax=self.ax)
+            
+            self.pose_circle = plt.Circle((x, y), radius=R, edgecolor='blue', facecolor='none')
+            self.pose_line, = self.ax.plot(
+                [x, x + R * np.cos(theta)],
+                [y, y + R * np.sin(theta)],
+                color='blue'
+            )
+            
             self.ax.add_patch(self.pose_circle)
-            self.ax.set_aspect('equal')
-            self.ax.set_title("Occupancy Grid")
         else:
-            self.im.set_data(prob_map[0])
-                    
-        # Update pose drawing
-        x, y, theta = pose
-        scale = 1.0
-        self.pose_circle.center = (x, y)
-        self.pose_circle.radius = scale * 0.5
-        self.pose_line.set_data(
-            [x, x + scale * 0.5 * np.cos(theta)],
-            [y, y + scale * 0.5 * np.sin(theta)]
-        )
+            self.im.set_data(prob_map)
+            
+            self.pose_circle.center = (x, y)
+            self.pose_circle.radius = R
+            self.pose_line.set_data(
+                [x, x + R * np.cos(theta)],
+                [y, y + R * np.sin(theta)]
+            )
+        
+        # Set ticks
+        xticks = np.arange(0, self.simulator.og_map.width_m, 1.0)
+        yticks = np.arange(0, self.simulator.og_map.height_m, 1.0)
+        self.ax.set_xticks(xticks)
+        self.ax.set_yticks(yticks)
 
-        self.ax.set_xlim(0, width * res)
-        self.ax.set_ylim(0, height * res)
-        self.ax.grid(True)
+        self.ax.set_aspect('equal')
+        self.ax.set_title(f'Occupancy grid map (H={self.simulator.og_map.entropy:.4f})')
+
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
+        
+        # prob_map, normalized_pose = self.simulator.get_observation()
+        # pose = normalized_pose * np.array([self.simulator.og_map.width_m,
+        #                                    self.simulator.og_map.height_m,
+        #                                    2*np.pi])
+        
+        # height = self.simulator.og_map.height_px
+        # width = self.simulator.og_map.width_px
+        # res = self.simulator.og_map.resolution
+        # extent = [0, width * res, 0, height * res]
+        
+        # if self.fig is None:
+        #     plt.ion()
+        #     self.fig, self.ax = plt.subplots()
+            
+        #     self.im = self.ax.imshow(prob_map[0], vmin=0, vmax=255, cmap='gray_r',
+        #                          interpolation='nearest', origin='upper', extent=extent)
+
+        #     self.pose_circle = plt.Circle((0, 0), radius=1.0, edgecolor='blue', facecolor='none')
+        #     self.pose_line, = self.ax.plot([], [], color='blue')
+        #     self.ax.add_patch(self.pose_circle)
+        #     self.ax.set_aspect('equal')
+        #     self.ax.set_title("Occupancy Grid")
+        # else:
+        #     self.im.set_data(prob_map[0])
+                    
+        # # Update pose drawing
+        # x, y, theta = pose
+        # scale = 1.0
+        # self.pose_circle.center = (x, y)
+        # self.pose_circle.radius = scale * 0.5
+        # self.pose_line.set_data(
+        #     [x, x + scale * 0.5 * np.cos(theta)],
+        #     [y, y + scale * 0.5 * np.sin(theta)]
+        # )
+
+        # self.ax.set_xlim(0, width * res)
+        # self.ax.set_ylim(0, height * res)
+        # self.ax.grid(True)
+        # self.fig.canvas.draw()
+        # self.fig.canvas.flush_events()
     
     def close(self):
         if hasattr(self, 'fig') and self.fig is not None:
             plt.ioff()
             plt.close(self.fig)
+            
             self.fig = None
             self.ax = None
             self.im = None
-            self.pose_circle = None
-            self.pose_line = None
-    
-    @staticmethod
-    def from_dict(cfg):
-        return GymExploreEnv(
-            episode_maxlen_steps=cfg['episode_maxlen_steps'],
-            percentage_of_map_to_explore=cfg['percentage_of_map_to_explore'],
-            map_name=cfg['map_name'],
-            og_map_resolution=cfg['og_map_resolution'],
-            omega=cfg['omega'],
-            v=cfg['v'],
-            dt=cfg['dt'],
-            travel_cut_short_dist_m=cfg['travel_cut_short_dist_m'],
-            og_map_shape=cfg['og_map_shape'],
-            render_mode=cfg.get('render_mode', None)
-        )
