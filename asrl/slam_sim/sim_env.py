@@ -22,7 +22,7 @@ class SimulationEnvironment:
         self._dt = dt  # Time step
         
         self._r_min_m = 0.0
-        self._r_max_m = 10.0
+        self._r_max_m = 6.0
         self._range_noise_m = 0.0
 
         map_name, _ = os.path.splitext(map_name)

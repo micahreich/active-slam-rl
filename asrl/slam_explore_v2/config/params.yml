@@ -1,0 +1,14 @@
+ppo:
+  learning_rate: 0.0005
+  n_steps: 1024
+  batch_size: 64
+  n_epochs: 4
+  gamma: 0.5
+  gae_lambda: 0.95
+  clip_range: 0.2
+  clip_range_vf: null
+  normalize_advantage: true
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  seed: 1337

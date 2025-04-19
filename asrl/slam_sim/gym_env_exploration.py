@@ -12,7 +12,7 @@ class GymExploreEnv(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 5}
     
     def __init__(self,
-                 episode_maxlen_steps,
+                 max_steps,
                  percentage_of_map_to_explore,
                  map_name,
                  og_map_resolution,
@@ -21,7 +21,7 @@ class GymExploreEnv(gym.Env):
                  render_mode=None):
         super().__init__()
         
-        self.episode_maxlen_steps = episode_maxlen_steps
+        self.max_steps = max_steps
         self.percentage_of_map_to_explore = percentage_of_map_to_explore
         
         self.simulator = SimulationEnvironment(
@@ -66,7 +66,7 @@ class GymExploreEnv(gym.Env):
         
         if traversed_path is None:
             pathlength_reward = 0.0
-            exploration_reward = -5.0
+            exploration_reward = -1.0
         else:
             pathlength_reward = -0.05 * len(traversed_path) * self.simulator.og_map.resolution
             exploration_reward = 50.0 * (entropy_before - entropy_after)

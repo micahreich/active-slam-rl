@@ -8,12 +8,12 @@ import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     env = GymExploreEnv(
-        episode_maxlen_steps=150,
+        max_steps=150,
         percentage_of_map_to_explore=0.95,
         map_name="box2",
         og_map_resolution=0.2,
         dt=0.2,
-        og_map_shape=(1, 128, 128),
+        og_map_shape=(1, 100, 100),
         render_mode="human",
     )
     
