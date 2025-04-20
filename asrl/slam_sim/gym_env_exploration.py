@@ -62,33 +62,43 @@ class GymExploreEnv(gym.Env):
         return self._to_obs(), {}
     
     def step(self, action):
+        # Find distance requested to travel
+        goal_ij = (action * np.array([self.simulator.og_map.height_px - 1,
+                                      self.simulator.og_map.width_px - 1])).astype(np.int32)
+        goal_xy_m = self.simulator.og_map.indexer.ij_to_xy_m(goal_ij)
+        target_distance = np.linalg.norm(goal_xy_m - self.simulator.pose[:2])
+        
+        close_target_reward = -0.05 * target_distance
+        
+        # Find entropy delta
         entropy_before = self.simulator.og_map.entropy
-        
         traversed_path = self.simulator.step(action)
-        
         entropy_after = self.simulator.og_map.entropy
         
         if traversed_path is None:
             pathlength_reward = 0.0
-            exploration_reward = -1.0
+            exploration_reward = -0.9
         else:
             pathlength_reward = -0.05 * len(traversed_path) * self.simulator.og_map.resolution
-            exploration_reward = 200.0 * (entropy_before - entropy_after)
+            exploration_reward = 25.0 * (entropy_before - entropy_after)
         
         # Check if the agent has explored enough of the map
         done = self.simulator.og_map.free_area_m2 / self.simulator.array_map.free_area_m2 > self.percentage_of_map_to_explore
         
+        if done:
+            exploration_reward += 10.0
+        
         # Check if the episode has reached its maximum length
         truncated = self.simulator.timesteps_elapsed >= self.max_steps
                 
-        time_reward = -0.5
-        reward = exploration_reward + time_reward #+ pathlength_reward
+        time_reward = -0.01
+        reward = exploration_reward + close_target_reward + time_reward #+ pathlength_reward
         
         info = {
             "traversed_path": traversed_path,
             "exploration_reward": exploration_reward,
             "time_reward": time_reward,
-            "pathlength_reward": pathlength_reward,
+            "close_target_reward": close_target_reward,
         }
         
         return self._to_obs(), reward, done, truncated, info
@@ -97,7 +107,8 @@ class GymExploreEnv(gym.Env):
         if self.render_mode != "human":
             return
         
-        prob_map = self.simulator.og_map.to_prob_map()
+        # prob_map = self.simulator.og_map.to_prob_map()
+        prob_map, agent_pos = self._to_obs()
         extent = [0, self.simulator.og_map.width_m, 0, self.simulator.og_map.height_m]
         x, y, theta = self.simulator.pose
         
@@ -149,9 +160,7 @@ class GymExploreEnv(gym.Env):
 
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-        
-        print("huh")
-        
+                
         # prob_map, normalized_pose = self.simulator.get_observation()
         # pose = normalized_pose * np.array([self.simulator.og_map.width_m,
         #                                    self.simulator.og_map.height_m,

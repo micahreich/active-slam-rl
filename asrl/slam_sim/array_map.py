@@ -222,7 +222,10 @@ class ArrayMap:
         
         # Perform raycasting
         out = self._raycasting_scene.cast_rays(raycast_vectors)
-        t_hit = np.clip(out['t_hit'].numpy(), r_min_m, r_max_m)
+        t_hit = out['t_hit'].numpy()
+        
+        t_hit_mask = np.reshape((t_hit <= r_max_m), newshape=(B, n_rays))
+        t_hit = np.clip(t_hit, 0.0, r_max_m)
                 
         sigma = range_noise_m + 0.001 * t_hit  # base noise + 1mm per meter
         noise = self.np_random.normal(loc=0.0, scale=sigma)
@@ -239,9 +242,9 @@ class ArrayMap:
         assert scans_B_BP_2d.shape == (B, n_rays, 2)
         
         if not is_batched:
-            return scans_B_BP_2d[0], n_rays
+            return scans_B_BP_2d[0], t_hit_mask[0], n_rays
         
-        return scans_B_BP_2d, n_rays
+        return scans_B_BP_2d, t_hit_mask, n_rays
     
 
 if __name__ == "__main__":

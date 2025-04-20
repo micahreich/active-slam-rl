@@ -16,10 +16,10 @@ import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     # Load from file
-    model = PPO.load("/home/dev/workspace/ppo_slam_explore.zip")
+    model = PPO.load("/home/dev/workspace/ppo_slam_explore33.zip")
     env_kwargs={
-        'max_steps': 100,
-        'percentage_of_map_to_explore': 0.95,
+        'max_steps': 500,
+        'percentage_of_map_to_explore': 0.5,
         'map_name': 'box2',
         'og_map_resolution': 0.2,
         'dt': 0.1,
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     }
     
     env = GymExploreEnv(**env_kwargs, render_mode='human')
-    obs, _ = env.reset(seed=0)
+    obs, _ = env.reset(seed=1337)
     env.render()
     
     done, truncated = False, False
@@ -36,6 +36,7 @@ if __name__ == "__main__":
 
     while not (done or truncated):
         action, _states = model.predict(obs, deterministic=False)
+        print(action)
         # action = np.random.uniform(0, 1, size=(2,))
         
         obs, reward, done, truncated, info = env.step(action)

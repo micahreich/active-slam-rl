@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 if __name__ == "__main__":
     env = GymExploreEnv(
         max_steps=100,
-        percentage_of_map_to_explore=0.95,
+        percentage_of_map_to_explore=0.6,
         map_name="box2",
         og_map_resolution=0.2,
         dt=0.2,
@@ -43,7 +43,9 @@ if __name__ == "__main__":
             episode_reward += reward
 
             print(f"{episode} - Reward: {reward}, Episode Reward: {episode_reward}, Done? {done}, Truncated? {truncated}, Steps {env.simulator.timesteps_elapsed}")
-            print(f"\texploration_reward: {info['exploration_reward']}, time_reward: {info['time_reward']}, pathlength_reward: {info['pathlength_reward']}")
+            print(f"\texploration_reward: {info['exploration_reward']:.3f}, \
+                time_reward: {info['time_reward']:.3f}, \
+                close_target_reward: {info['close_target_reward']:.3f}")
             
             if done or truncated:
                 obs, info = env.reset()

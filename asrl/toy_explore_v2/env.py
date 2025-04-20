@@ -93,32 +93,31 @@ class GridExploreEnvTeleport(gym.Env):
         r = action[0] * (self.nrows - 1)
         c = action[1] * (self.ncols - 1)
         
-        # Track old total for reward
-        map_entropy_before = self.map_entropy()
-        
-        self._stamp_map(r, c)
-
-        # Compute reward as increase in total value
-        map_entropy_after = self.map_entropy()
-        
-        entropy_reward = 50.0 * (map_entropy_before - map_entropy_after)
-        time_reward = -0.5
-        closeness_reward = 0.5 * -np.linalg.norm(
-            np.array([self.agent_r, self.agent_c]) - np.array([r, c])
-        ) / np.sqrt(self.nrows**2 + self.ncols**2)
-        
         if self.obstacles[int(r), int(c)] == 1.0:
-            obstacle_penalty = -6.0
+            reward = -5.0
+            done = False
         else:
-            obstacle_penalty = 0.0
+            # Track old total for reward
+            map_entropy_before = self.map_entropy()
+            
+            self._stamp_map(r, c)
 
-        total_explored = np.sum(self.map * self.free_space / self.map_value_max)
-        done = total_explored / self.ncells_free >= self.map_value_max * 0.90
-        
-        reward = entropy_reward + time_reward + closeness_reward + obstacle_penalty
-        
-        self.agent_r = r
-        self.agent_c = c
+            # Compute reward as increase in total value
+            map_entropy_after = self.map_entropy()
+            
+            entropy_reward = 50.0 * (map_entropy_before - map_entropy_after)
+            time_reward = -0.5
+            closeness_reward = 0.5 * -np.linalg.norm(
+                np.array([self.agent_r, self.agent_c]) - np.array([r, c])
+            ) / np.sqrt(self.nrows**2 + self.ncols**2)
+
+            total_explored = np.sum(self.map * self.free_space / self.map_value_max)
+            done = total_explored / self.ncells_free >= self.map_value_max * 0.90
+            
+            reward = entropy_reward + time_reward + closeness_reward
+            
+            self.agent_r = r
+            self.agent_c = c
 
         return self._to_obs(), reward, done, False, {}
 

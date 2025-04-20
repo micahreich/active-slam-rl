@@ -51,14 +51,14 @@ class SimulationEnvironment:
         self.og_map.reset()
         
         # Perform a raycast to update the occupancy grid map just with the initial pose
-        initial_scan, n_rays_per_scan = self.array_map.raycast_in_map(
+        initial_scan, t_hit_mask, n_rays_per_scan = self.array_map.raycast_in_map(
             self.pose,
             r_min_m=self._r_min_m,
             r_max_m=self._r_max_m,
             range_noise_m=self._range_noise_m,
         )
         
-        self.og_map.process_scans(self.pose, initial_scan, n_rays_per_scan)
+        self.og_map.process_scans(self.pose, initial_scan, t_hit_mask, n_rays_per_scan)
     
     def step(self, action: NDArray) -> None:
         self.timesteps_elapsed += 1
@@ -66,13 +66,13 @@ class SimulationEnvironment:
         r_goal = int( action[0] * (self.og_map.height_px - 1) )
         c_goal = int( action[1] * (self.og_map.width_px - 1) )
         
+        r_curr, c_curr = self.og_map.indexer.xy_m_to_ij(self.pose[:2])
+
         # Decide if agent can go here or not based on the occupancy grid map        
-        if self.og_map.grid[r_goal, c_goal] >= log_odds(0.4):
+        if self.og_map.grid[r_goal, c_goal] >= log_odds(0.5):
             # Wants to move into occupied or unknown space
             return None
         
-        r_curr, c_curr = self.og_map.indexer.xy_m_to_ij(self.pose[:2])
-
         # Move to the new position by planning a path
         prob_grid = self.og_map.to_prob_map()
                 
@@ -88,14 +88,14 @@ class SimulationEnvironment:
         traversed_poses_xy_m[:, :2] = self.og_map.indexer.ij_to_xy_m(np.asarray(path_ij))
 
         # Update the occupancy grid map with scans along the path
-        scans, n_rays_per_scan = self.array_map.raycast_in_map(
+        scans, t_hit_mask, n_rays_per_scan = self.array_map.raycast_in_map(
             traversed_poses_xy_m,
             r_min_m=self._r_min_m,
             r_max_m=self._r_max_m,
             range_noise_m=self._range_noise_m,
         )
         
-        self.og_map.process_scans(traversed_poses_xy_m, scans, n_rays_per_scan)
+        self.og_map.process_scans(traversed_poses_xy_m, scans, t_hit_mask, n_rays_per_scan)
         
         # Update the agent's pose
         self.pose = traversed_poses_xy_m[-1]

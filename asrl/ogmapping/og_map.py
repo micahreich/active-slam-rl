@@ -71,7 +71,7 @@ class OccupancyGridMapper:
         
         return 1 / (1.0 + np.exp(-clipped_grid))  # Convert log-odds to probability
     
-    def process_scans(self, poses: NDArray, scans_B_BP_2d: NDArray, n_rays_per_scan: int) -> None:
+    def process_scans(self, poses: NDArray, scans_B_BP_2d: NDArray, masks: NDArray, n_rays_per_scan: int) -> None:
         is_batched = poses.ndim == 2
         if not is_batched:
             poses = poses[None, ...]
@@ -93,11 +93,12 @@ class OccupancyGridMapper:
         
         starts = self.indexer.xy_m_to_xy_r(starts_xy_m).astype(np.int32)
         ends = self.indexer.xy_m_to_xy_r(ends_xy_m).astype(np.int32)
+        masks = np.reshape(masks, (B * n_rays_per_scan,))
         
         max_cells = np.amax(np.amax(np.abs(ends - starts), axis=1))
         
         cells, lengths = trace_all_beams(starts, ends, max_cells)
-        apply_logodds_updates(self.grid, cells, lengths, self.l_free, self.l_occ)
+        apply_logodds_updates(self.grid, cells, lengths, masks, self.l_free, self.l_occ)
         
         # # Clip the log-odds values to the maximum and minimum thresholds for numerical stability
         # np.clip(self.grid, self.l_min, self.l_max, out=self.grid)

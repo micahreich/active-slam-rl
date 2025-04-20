@@ -51,12 +51,13 @@ def trace_all_beams(starts, ends, max_cells):
     return cell_inds, lengths
 
 @njit
-def apply_logodds_updates(map_grid, cell_inds, lengths, log_free, log_occ):
+def apply_logodds_updates(map_grid, cell_inds, lengths, masks, log_free, log_occ):
     height, width = map_grid.shape
     
     n_beams = lengths.shape[0]
     for i in range(n_beams):
         L = lengths[i]
+        
         for j in range(L - 1):
             x, y = cell_inds[i, j]
             
@@ -64,8 +65,12 @@ def apply_logodds_updates(map_grid, cell_inds, lengths, log_free, log_occ):
                 map_grid[height - y - 1, x] += log_free
                 
         x, y = cell_inds[i, L - 1]
-        if 0 <= x < width and 0 <= y < height:
+        end_hit = masks[i]
+        
+        if end_hit and 0 <= x < width and 0 <= y < height:
             map_grid[height - y - 1, x] += log_occ
+        elif not end_hit and 0 <= x < width and 0 <= y < height:
+            map_grid[height - y - 1, x] += log_free
 
 
 if __name__ == "__main__":
