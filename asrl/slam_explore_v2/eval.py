@@ -16,10 +16,10 @@ import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     # Load from file
-    model = PPO.load("/home/dev/workspace/asrl/slam_explore_v2/2025-04-20_04-03-50/ppo_slam_explore.zip")
+    model = PPO.load("/home/dev/workspace/asrl/slam_explore_v2/2025-04-20_07-17-53/ppo_slam_explore.zip")
     env_kwargs={
         'max_steps': 500,
-        'percentage_of_map_to_explore': 0.5,
+        'percentage_of_map_to_explore': 0.95,
         'map_name': 'box2',
         'og_map_resolution': 0.2,
         'dt': 0.1,
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     }
     
     env = GymExploreEnv(**env_kwargs, render_mode='human')
-    obs, _ = env.reset(seed=1337)
+    obs, _ = env.reset(seed=20)
     env.render()
     
     done, truncated = False, False
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     ep_reward = 0
 
     while not (done or truncated):
-        action, _states = model.predict(obs, deterministic=True)
+        action, _states = model.predict(obs, deterministic=False)
         # action = np.random.uniform(0, 1, size=(2,))
         
         obs, reward, done, truncated, info = env.step(action)
@@ -43,7 +43,7 @@ if __name__ == "__main__":
         ep_reward += reward
         
         env.render()
-        time.sleep(1 / 2.0)
+        time.sleep(1 / 5.0)
 
     print(f"Episode length: {ep_len}, reward: {ep_reward}")
     env.close()

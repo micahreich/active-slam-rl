@@ -77,7 +77,7 @@ def train(cfg: dict, total_timesteps):
         n_envs=32,
         env_kwargs={
             'max_steps': 1000,
-            'percentage_of_map_to_explore': 0.5,
+            'percentage_of_map_to_explore': 0.95,
             'map_name': 'box2',
             'og_map_resolution': 0.2,
             'dt': 0.1,
@@ -110,10 +110,21 @@ def train(cfg: dict, total_timesteps):
     total_params = sum(p.numel() for p in model.policy.features_extractor.parameters() if p.requires_grad)
     print(model.policy, total_params)
     
-    model.learn(total_timesteps, log_interval=1, progress_bar=True)
-    
-    model.save(f"{path}/{now}/ppo_slam_explore")
-    vec_env.save(f"{path}/{now}/vecnormalize.pkl")
+    try:
+        model.learn(total_timesteps, log_interval=1, progress_bar=True)
+    except KeyboardInterrupt:
+        print("Training interrupted. Saving the model...")
+    finally:
+        model.save(f"{path}/{now}/ppo_slam_explore")
+        vec_env.save(f"{path}/{now}/vecnormalize.pkl")
+        
+        with open(f'{path}/{now}/params.yml', 'w') as f:
+            yaml.safe_dump(
+                cfg, 
+                f, 
+                default_flow_style=False,  # use block style rather than inline
+                sort_keys=False           # keep insertion order (PyYAML ≥5.1)
+            )
 
 
 if __name__ == "__main__":
@@ -121,4 +132,4 @@ if __name__ == "__main__":
         config = yaml.safe_load(f)
     
     # Run training
-    train(config['ppo'], total_timesteps=1_500_000)
+    train(config['ppo'], total_timesteps=3_000_000)
