@@ -92,7 +92,7 @@ class GymExploreEnv(gym.Env):
         truncated = self.simulator.timesteps_elapsed >= self.max_steps
                 
         time_reward = -0.01
-        reward = exploration_reward + close_target_reward + time_reward #+ pathlength_reward
+        reward = exploration_reward + close_target_reward #+ time_reward #+ pathlength_reward
         
         info = {
             "traversed_path": traversed_path,
