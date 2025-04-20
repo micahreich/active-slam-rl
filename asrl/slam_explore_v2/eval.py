@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
     # Load from file
-    model = PPO.load("/home/dev/workspace/ppo_slam_explore33.zip")
+    model = PPO.load("/home/dev/workspace/asrl/slam_explore_v2/2025-04-20_04-03-50/ppo_slam_explore.zip")
     env_kwargs={
         'max_steps': 500,
         'percentage_of_map_to_explore': 0.5,
@@ -35,8 +35,7 @@ if __name__ == "__main__":
     ep_reward = 0
 
     while not (done or truncated):
-        action, _states = model.predict(obs, deterministic=False)
-        print(action)
+        action, _states = model.predict(obs, deterministic=True)
         # action = np.random.uniform(0, 1, size=(2,))
         
         obs, reward, done, truncated, info = env.step(action)
@@ -44,7 +43,7 @@ if __name__ == "__main__":
         ep_reward += reward
         
         env.render()
-        time.sleep(1 / 10.0)
+        time.sleep(1 / 2.0)
 
     print(f"Episode length: {ep_len}, reward: {ep_reward}")
     env.close()

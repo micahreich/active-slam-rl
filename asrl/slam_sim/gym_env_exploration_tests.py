@@ -1,3 +1,4 @@
+import pprint
 import numpy as np
 import time
 from asrl.slam_sim.gym_env_exploration import GymExploreEnv
@@ -43,9 +44,7 @@ if __name__ == "__main__":
             episode_reward += reward
 
             print(f"{episode} - Reward: {reward}, Episode Reward: {episode_reward}, Done? {done}, Truncated? {truncated}, Steps {env.simulator.timesteps_elapsed}")
-            print(f"\texploration_reward: {info['exploration_reward']:.3f}, \
-                time_reward: {info['time_reward']:.3f}, \
-                close_target_reward: {info['close_target_reward']:.3f}")
+            pprint.pprint(info)
             
             if done or truncated:
                 obs, info = env.reset()
