@@ -78,7 +78,7 @@ def nearest_neighbor(src: NDArray[np.floating], dst: NDArray[np.floating]) -> tu
         indices: dst indices of the nearest neighbor
     '''
 
-    assert src.shape == dst.shape
+    # assert src.shape == dst.shape
 
     neigh = NearestNeighbors(n_neighbors=1)
     neigh.fit(dst)

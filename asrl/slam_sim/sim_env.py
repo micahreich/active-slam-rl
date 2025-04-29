@@ -17,6 +17,7 @@ class SimulationEnvironment:
                  map_name,
                  og_map_resolution,
                  dt,
+                 k,
                  og_map_shape=(None, None),
                  np_random=np.random):
         self._dt = dt  # Time step
@@ -24,6 +25,8 @@ class SimulationEnvironment:
         self._r_min_m = 0.0
         self._r_max_m = 6.0
         self._range_noise_m = 0.0
+        
+        self.k = k
 
         map_name, _ = os.path.splitext(map_name)
         map_fpath = os.path.join(MAPS_DIRECTORY, f"{map_name}.txt")
@@ -38,8 +41,24 @@ class SimulationEnvironment:
                                           p_miss=0.2,
                                           max_height_px=og_map_shape[-2],
                                           max_width_px=og_map_shape[-1])
+        
+        # self.frontiers_xy_m = np.zeros((self.k, 2), dtype=np.float32)
+        # self.n_frontiers = 0
+
+    # def _set_frontiers(self) -> None:
+    #     og_frontiers_xy_m = self.og_map.sample_frontiers(self.k, output_type='xy_m')
+    #     n_curr_frontiers = 0 if og_frontiers_xy_m is None else len(og_frontiers_xy_m)
+
+    #     if n_curr_frontiers > 0:
+    #         self.frontiers_xy_m[:n_curr_frontiers] = og_frontiers_xy_m
+
+    #     # Fill any missing entries with agent's own location
+    #     if n_curr_frontiers < self.k:
+    #         self.frontiers_xy_m[n_curr_frontiers:] = self.pose[:2]
+        
+    #     self.n_frontiers = n_curr_frontiers
     
-    def reset(self, pose=None) -> Tuple[NDArray, NDArray]:
+    def reset(self, pose=None) -> None:
         self.timesteps_elapsed = 0
         
         if pose is None:
@@ -59,23 +78,24 @@ class SimulationEnvironment:
         )
         
         self.og_map.process_scans(self.pose, initial_scan, t_hit_mask, n_rays_per_scan)
-    
-    def step(self, action: NDArray) -> None:
+        self.frontiers_xy_m = self.og_map.sample_frontiers(self.k, output_type='xy_m')
+        
+    def step(self, action: int) -> None:
+        assert 0 <= action < self.k, f"Action {action} must be in [0, {self.k})"
+
         self.timesteps_elapsed += 1
 
-        r_goal = int( action[0] * (self.og_map.height_px - 1) )
-        c_goal = int( action[1] * (self.og_map.width_px - 1) )
-        
-        r_curr, c_curr = self.og_map.indexer.xy_m_to_ij(self.pose[:2])
-
-        # Decide if agent can go here or not based on the occupancy grid map        
-        if self.og_map.grid[r_goal, c_goal] >= log_odds(0.5):
-            # Wants to move into occupied or unknown space
+        if action >= len(self.frontiers_xy_m):
             return None
+        
+        selected_frontier_xy_m = self.frontiers_xy_m[action]
+
+        r_goal, c_goal = self.og_map.indexer.xy_m_to_ij(selected_frontier_xy_m)
+        r_curr, c_curr = self.og_map.indexer.xy_m_to_ij(self.pose[:2])
         
         # Move to the new position by planning a path
         prob_grid = self.og_map.to_prob_map()
-                
+
         path_ij, cost = route_through_array(
             array=prob_grid,
             start=(r_curr, c_curr),
@@ -96,41 +116,42 @@ class SimulationEnvironment:
         )
         
         self.og_map.process_scans(traversed_poses_xy_m, scans, t_hit_mask, n_rays_per_scan)
-        
+
         # Update the agent's pose
         self.pose = traversed_poses_xy_m[-1]
+        self.frontiers_xy_m = self.og_map.sample_frontiers(self.k, output_type='xy_m')
         
         return traversed_poses_xy_m
 
-    def visualize_map_and_agent(self, fig, ax,
-                                traversed_poses = None):
-        ax.clear()
+    # def visualize_map_and_agent(self, fig, ax,
+    #                             traversed_poses = None):
+    #     ax.clear()
         
-        grid_prob = self.og_map.to_prob_map()
-        extent = [0, self.og_map.width_m, 0, self.og_map.height_m]
+    #     grid_prob = self.og_map.to_prob_map()
+    #     extent = [0, self.og_map.width_m, 0, self.og_map.height_m]
         
-        grid_prob_img = ax.imshow(
-            grid_prob,
-            cmap='gray_r', interpolation='nearest',
-            origin='upper', extent=extent
-        )
+    #     grid_prob_img = ax.imshow(
+    #         grid_prob,
+    #         cmap='gray_r', interpolation='nearest',
+    #         origin='upper', extent=extent
+    #     )
         
-        agent = ax.scatter([self.pose[0]], [self.pose[1]], c='red', s=100, marker='x')
+    #     agent = ax.scatter([self.pose[0]], [self.pose[1]], c='red', s=100, marker='x')
         
-        if traversed_poses is not None:
-            path = ax.plot(
-                traversed_poses[:, 0], traversed_poses[:, 1],
-                color='blue', linewidth=2, label='Path'
-            )
+    #     if traversed_poses is not None:
+    #         path = ax.plot(
+    #             traversed_poses[:, 0], traversed_poses[:, 1],
+    #             color='blue', linewidth=2, label='Path'
+    #         )
 
-        xticks = np.arange(0, self.og_map.width_m, 1.0)
-        yticks = np.arange(0, self.og_map.height_m, 1.0)
-        ax.set_xticks(xticks)
-        ax.set_yticks(yticks)
+    #     xticks = np.arange(0, self.og_map.width_m, 1.0)
+    #     yticks = np.arange(0, self.og_map.height_m, 1.0)
+    #     ax.set_xticks(xticks)
+    #     ax.set_yticks(yticks)
 
-        plt.title(f'Occupancy grid map (H={self.og_map.entropy:.4f})')
+    #     plt.title(f'Occupancy grid map (H={self.og_map.entropy:.4f})')
         
-        return grid_prob_img
+    #     return grid_prob_img
         
 
 def test1():

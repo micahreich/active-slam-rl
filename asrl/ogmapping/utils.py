@@ -16,6 +16,22 @@ def transform_points(T, points):
 def log_odds(p):
     return np.log( p / (1 - p) )
 
+def fast_fps(points, k):
+    N = len(points)
+    
+    if k >= N:
+        return points
+    
+    selected = [np.random.randint(N)]
+    dists = np.full(N, np.inf)
+
+    for _ in range(1, k):
+        last = points[selected[-1]]
+        dists = np.minimum(dists, np.linalg.norm(points - last, axis=1))
+        selected.append(np.argmax(dists))
+
+    return points[selected]
+
 class ArrayIndexer:
     def __init__(self, resolution: float, height_px: int, width_px: int) -> None:
         """
@@ -88,7 +104,7 @@ class ArrayIndexer:
         ij[:, 1] = xy_r_floored[:, 0]
         
         if squeeze_back:
-            return np.squeeze(ij)
+            return np.squeeze(ij, axis=0)
         
         return ij
     

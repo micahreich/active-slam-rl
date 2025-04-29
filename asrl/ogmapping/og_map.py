@@ -2,7 +2,8 @@ from typing import List
 import numpy as np
 from numpy.typing import NDArray
 from spatialmath.base import *
-
+from scipy.ndimage import binary_dilation, generate_binary_structure
+from asrl.ogmapping import utils
 from asrl.ogmapping.bresenham import trace_all_beams, apply_logodds_updates
 from asrl.ogmapping.utils import ArrayIndexer, log_odds, transform_points
 import numba
@@ -21,8 +22,8 @@ class OccupancyGridMapper:
         self.l_free = log_odds(p_miss)
         self.l_unknown = log_odds(0.5)
         
-        self.l_max = log_odds(0.95)
-        self.l_min = log_odds(0.05)
+        self.l_max = log_odds(1 - 1e-5)
+        self.l_min = log_odds(1e-5)
         
         # Resolution refers to the size of each cell in the grid [m]
         self.resolution = resolution
@@ -86,7 +87,7 @@ class OccupancyGridMapper:
         
         W_T_B = np.stack([xyt2tr(p) for p in poses], axis=0)
         scans_W_WP_2d = transform_points(W_T_B, scans_B_BP_2d)
-                
+
         # Convert from meters to pixel indices
         starts_xy_m = np.repeat(poses[:, :2], n_rays_per_scan, axis=0)
         ends_xy_m = np.reshape(scans_W_WP_2d, (B * n_rays_per_scan, 2))
@@ -99,6 +100,37 @@ class OccupancyGridMapper:
         
         cells, lengths = trace_all_beams(starts, ends, max_cells)
         apply_logodds_updates(self.grid, cells, lengths, masks, self.l_free, self.l_occ)
-        
+         
         # # Clip the log-odds values to the maximum and minimum thresholds for numerical stability
         # np.clip(self.grid, self.l_min, self.l_max, out=self.grid)
+        
+    def frontiers_mask(self, free_thresh=0.35, occ_thresh=0.65):
+        l_free = log_odds(free_thresh)
+        l_occ = log_odds(occ_thresh)
+        
+        is_free = self.grid < l_free
+        is_obstacle = self.grid > l_occ
+        is_unknown = ~is_free & ~is_obstacle
+                
+        unknown_dilated = binary_dilation(is_unknown, generate_binary_structure(rank=2, connectivity=1))
+        obstacles_dilated = binary_dilation(is_obstacle, generate_binary_structure(rank=2, connectivity=2))
+        
+        frontiers = unknown_dilated & is_free & ~obstacles_dilated
+        return frontiers
+    
+    def sample_frontiers(self, k, output_type='xy_m'):
+        assert output_type in ['xy_m', 'ij'], \
+            f"output_type must be 'xy_m' or 'ij', but got {output_type}"
+        
+        frontiers_map = self.frontiers_mask()
+        frontiers_ij = np.argwhere(frontiers_map > 0)
+        
+        if len(frontiers_ij) == 0:
+            return np.empty((0, 2), dtype=np.float32)
+        
+        fps_samples = utils.fast_fps(frontiers_ij, k)
+        
+        if output_type == 'xy_m':
+            return self.indexer.ij_to_xy_m(fps_samples)
+        else:
+            return fps_samples

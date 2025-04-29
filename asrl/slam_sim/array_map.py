@@ -115,8 +115,19 @@ class ArrayMap:
         self._raycasting_scene = o3d.t.geometry.RaycastingScene()
         for cube in self._wall_o3d_geometries:
             self._raycasting_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(cube))
-            
+        
+        self.map_image = self._to_image()
+        
         self.np_random = np_random
+    
+    def _to_image(self):
+        # Convert the map to an image format
+        img = 0.5 * np.ones((self.height_px, self.width_px), dtype=np.float32)
+        
+        img[self._walls == 1] = 0.99  # Occupied
+        img[self._free_space == 1] = 0.01  # Free space
+        
+        return img
     
     def _map_from_lines(self, lines: list[str]):
         # Parse character legend
@@ -199,8 +210,8 @@ class ArrayMap:
                        angle_range_deg: float = [-180, 180],
                        horizontal_resolution_deg: float = 2.0,
                        range_noise_m: float = 0.01):
-        assert r_min_m >= 0.0 and r_max_m < np.inf and r_min_m < r_max_m, \
-            f"Invalid range: {r_min_m=}, {r_max_m=}"
+        # assert r_min_m >= 0.0 and r_max_m < np.inf and r_min_m < r_max_m, \
+        #     f"Invalid range: {r_min_m=}, {r_max_m=}"
         
         is_batched = poses.ndim == 2
         if not is_batched:
@@ -245,7 +256,7 @@ class ArrayMap:
             return scans_B_BP_2d[0], t_hit_mask[0], n_rays
         
         return scans_B_BP_2d, t_hit_mask, n_rays
-    
+
 
 if __name__ == "__main__":
     m = ArrayMap('/home/dev/workspace/asrl/maps/box2.txt', resolution=1.0)
@@ -258,8 +269,30 @@ if __name__ == "__main__":
     )
     o3d.visualization.draw_geometries(m._wall_o3d_geometries + [coordinate_frame, grid])
     
-    pose = np.array([1.5, 2.5, np.deg2rad(0)])
-    points, n_rays = m.raycast_in_map(
+    # fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    
+    # extents = [0, m.width_m, 0, m.height_m]
+    
+    # im = ax.imshow(m.map_image, cmap='gray_r',
+    #           interpolation='nearest',
+    #           origin='upper',
+    #           extent=extents,
+    #           vmin=0, vmax=1)
+    
+    # # Add colorbar only once
+    # fig.colorbar(im, ax=ax)
+
+    # ax.set_xlim(extents[0], extents[1])
+    # ax.set_ylim(extents[2], extents[3])
+    # ax.set_aspect('equal')
+    # ax.set_xlabel('X (m)')
+    # ax.set_ylabel('Y (m)')
+    # ax.set_title('Occupancy Grid Map')
+    
+    # plt.show()
+    
+    pose = np.array([1.0, 2.0, np.deg2rad(0)])
+    points, mask, n_rays = m.raycast_in_map(
         pose,
     )
 
