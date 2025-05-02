@@ -1,6 +1,6 @@
 import numpy as np
 from typing import Optional, Tuple, cast
-from spatialmath.base import Points2, SE2Array, points2tr2
+from spatialmath.base import Points2, SE2Array, tr2xyt
 from numpy.typing import NDArray
 import open3d as o3d
 
@@ -37,13 +37,13 @@ def ICP2d(
         estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
     )
     
-    dst_T_src = result.transformation  # 4x4 transformation matrix
+    dst_T_src_SE3 = result.transformation  # 4x4 transformation matrix
     
-    # Extract the rotation and translation from the transformation matrix
-    R = dst_T_src[:2, :2]
-    t = dst_T_src[:2, 3]
+    dst_T_src_SE2 = np.eye(3)
+    dst_T_src_SE2[:2, :2] = dst_T_src_SE3[:2, :2]
+    dst_T_src_SE2[:2, 3] = dst_T_src_SE3[:2, 3]
     
-    return (R, t), result
+    return tr2xyt(dst_T_src_SE2), result
 
 
 # def ICP2d(

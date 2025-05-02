@@ -67,7 +67,7 @@ class GymExploreEnv(gym.Env):
         agent_position_map = np.zeros_like(prob_map)
         agent_position_map[agent_r, agent_c] = 1.0
 
-        image = np.stack([prob_map, agent_position_map], axis=0)
+        image = np.stack([prob_map, agent_position_map], axis=0, dtype=np.float32)
 
         frontiers = np.zeros((self.simulator.k, 2), dtype=np.float32)
         n_frontiers = len(self.simulator.frontiers_xy_m)
@@ -106,18 +106,18 @@ class GymExploreEnv(gym.Env):
         
         # Rewards
         exploration_reward = 50.0 * info_gain
-        time_reward = -0.4
+        time_reward = -0.5
 
         if traversed_path is not None:
-            pathlength_reward = -0.02 * len(traversed_path) * self.simulator.og_map.resolution
+            pathlength_reward = -2.0 * len(traversed_path) / self.simulator.og_map.width_px
         else:
             pathlength_reward = 0.0
         
         reward = exploration_reward + time_reward + pathlength_reward
 
         # Done / truncated 
-        done = False #exploration_done or frontiers_done
-        truncated = False #self.simulator.timesteps_elapsed >= self.max_steps
+        done = exploration_done or frontiers_done
+        truncated = self.simulator.timesteps_elapsed >= self.max_steps
                         
         info = {
             "exploration_reward": exploration_reward,
@@ -189,7 +189,7 @@ class GymExploreEnv(gym.Env):
         self.frontiers_im.set_data(masked_frontiers_map)
 
         # Update sampled frontiers points
-        denormalizer = np.array([self.simulator.og_map.height_px, self.simulator.og_map.width_px])
+        denormalizer = np.array([self.simulator.og_map.height_px, self.simulator.og_map.width_px]) - 1
         frontiers_ij = frontiers * denormalizer
 
         # Convert (row, col) ij -> xy meters for plotting

@@ -118,19 +118,37 @@ class OccupancyGridMapper:
         frontiers = unknown_dilated & is_free & ~obstacles_dilated
         return frontiers
     
+    # def sample_frontiers(self, k, output_type='xy_m'):
+    #     assert output_type in ['xy_m', 'ij'], \
+    #         f"output_type must be 'xy_m' or 'ij', but got {output_type}"
+        
+    #     frontiers_map = self.frontiers_mask()
+    #     frontiers_ij = np.argwhere(frontiers_map > 0)
+        
+    #     if len(frontiers_ij) == 0:
+    #         return np.empty((0, 2), dtype=np.float32)
+        
+    #     fps_samples = utils.fast_fps(frontiers_ij, k)
+        
+    #     if output_type == 'xy_m':
+    #         return self.indexer.ij_to_xy_m(fps_samples)
+    #     else:
+    #         return fps_samples
+    
     def sample_frontiers(self, k, output_type='xy_m'):
         assert output_type in ['xy_m', 'ij'], \
             f"output_type must be 'xy_m' or 'ij', but got {output_type}"
         
-        frontiers_map = self.frontiers_mask()
-        frontiers_ij = np.argwhere(frontiers_map > 0)
+        free_map = self.grid < log_odds(0.35)
+        free_ij  = np.argwhere(free_map > 0)
         
-        if len(frontiers_ij) == 0:
+        if len(free_ij) == 0:
             return np.empty((0, 2), dtype=np.float32)
         
-        fps_samples = utils.fast_fps(frontiers_ij, k)
+        fps_samples = utils.fast_fps(free_ij, k)
         
         if output_type == 'xy_m':
             return self.indexer.ij_to_xy_m(fps_samples)
         else:
             return fps_samples
+        

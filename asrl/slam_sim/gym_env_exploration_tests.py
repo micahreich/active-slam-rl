@@ -13,7 +13,7 @@ if __name__ == "__main__":
         map_name="box2",
         og_map_resolution=0.2,
         dt=0.2,
-        k=10,
+        k=20,
         og_map_shape=(1, 100, 100),
         render_mode="human",
     )
@@ -40,30 +40,31 @@ if __name__ == "__main__":
             print(f"Current input: {input_buffer}")
         
         elif event.key == 'enter':
-            if input_buffer != "":
-                try:
+            try:
+                if input_buffer != "":
                     action = int(input_buffer)
                     assert 0 <= action < env.simulator.k, f"Invalid action {action}"
+                else:
+                    action = np.random.randint(0, env.simulator.k)
 
-                    # Take a step with the selected action
-                    obs, reward, done, truncated, info = env.step(action)
-                    episode_reward += reward
+                # Take a step with the selected action
+                obs, reward, done, truncated, info = env.step(action)
+                episode_reward += reward
 
-                    print(f"Action {action} taken")
-                    print(f"{episode} - Reward: {reward:.2f}, Episode Reward: {episode_reward:.2f}, Done? {done}, Truncated? {truncated}, Steps {env.simulator.timesteps_elapsed}")
-                    # pprint.pprint(info)
+                print(f"Action {action} taken")
+                print(f"{episode} - Reward: {reward:.2f}, Episode Reward: {episode_reward:.2f}, Done? {done}, Truncated? {truncated}, Steps {env.simulator.timesteps_elapsed}")
+                # pprint.pprint(info)
 
-                    if done or truncated:
-                        obs, info = env.reset()
-                        episode_reward = 0.0
-                        episode += 1
+                if done or truncated:
+                    obs, info = env.reset()
+                    episode_reward = 0.0
+                    episode += 1
 
-                    env.render()
-
-                except (ValueError, AssertionError) as e:
-                    print(f"Invalid action: {e}")
-                finally:
-                    input_buffer = ""  # Clear input after action
+                env.render()
+            except (ValueError, AssertionError) as e:
+                print(f"Invalid action: {e}")
+                    
+            input_buffer = ""  # Clear input after action
 
     # Connect the keypress event
     env.fig.canvas.mpl_connect('key_press_event', on_key)

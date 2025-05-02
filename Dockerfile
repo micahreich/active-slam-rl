@@ -51,7 +51,8 @@ RUN pip install --no-cache-dir \
     spatialmath-python \
     numba \
     "gymnasium[mujoco]" \
-    "gymnasium[classic-control]"
+    "gymnasium[classic-control]" \
+    hnswlib
 
 # Create a non-root user named "dev" with the provided UID/GID.
 RUN groupadd -g ${GROUP_ID} dev && \

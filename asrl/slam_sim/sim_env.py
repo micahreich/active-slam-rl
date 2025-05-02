@@ -41,22 +41,6 @@ class SimulationEnvironment:
                                           p_miss=0.2,
                                           max_height_px=og_map_shape[-2],
                                           max_width_px=og_map_shape[-1])
-        
-        # self.frontiers_xy_m = np.zeros((self.k, 2), dtype=np.float32)
-        # self.n_frontiers = 0
-
-    # def _set_frontiers(self) -> None:
-    #     og_frontiers_xy_m = self.og_map.sample_frontiers(self.k, output_type='xy_m')
-    #     n_curr_frontiers = 0 if og_frontiers_xy_m is None else len(og_frontiers_xy_m)
-
-    #     if n_curr_frontiers > 0:
-    #         self.frontiers_xy_m[:n_curr_frontiers] = og_frontiers_xy_m
-
-    #     # Fill any missing entries with agent's own location
-    #     if n_curr_frontiers < self.k:
-    #         self.frontiers_xy_m[n_curr_frontiers:] = self.pose[:2]
-        
-    #     self.n_frontiers = n_curr_frontiers
     
     def reset(self, pose=None) -> None:
         self.timesteps_elapsed = 0
